@@ -401,7 +401,6 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
 </style>
 </head>
 <body>
-<!-- Loading overlay Firestore -->
 <div id="fs-loading" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,26,44,.92);align-items:center;justify-content:center;flex-direction:column;gap:14px;">
   <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10C9E4" stroke-width="2" stroke-linecap="round">
     <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
@@ -1269,8 +1268,6 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const FS_COL = "ithub";
 
-// Cache en memoria: las funciones loadX()/saveX() leen/escriben aqui.
-// initFirestore() llena el cache desde Firestore al arrancar.
 let _cache = {
   demanda:    { overrides: {}, custom: [] },
   tareas:     [],
@@ -1281,13 +1278,11 @@ let _cache = {
   macro_data: {}
 };
 
-// Escribe un documento en Firestore (fire-and-forget)
 function fsSet(docId, data){
   db.collection(FS_COL).doc(docId).set(data)
     .catch(e => console.warn("[Firestore] Error al guardar " + docId + ":", e));
 }
 
-// Carga todos los datos desde Firestore al cache en memoria
 async function initFirestore(){
   const loading = document.getElementById("fs-loading");
   if(loading) loading.style.display = "flex";
@@ -3214,7 +3209,7 @@ function recalcularTiempos(){
 // PMO — MÓDULO DE PROYECTOS
 // ══════════════════════════════════════════════
 const LS_PMO = "levapan_pmo_v1";
-const ESTADOS_PROYECTO = ["Iniciativa aprobada","Pre-Kickoff","En proceso","Detenido","Finalizado"];
+const ESTADOS_PROYECTO = ["Iniciativa aprobada","Pre-Kickoff","En proceso","Finalizado"];
 const ETAPAS_BASE = [
   {id:"descubrimiento", nombre:"Descubrimiento y análisis",  color:"#378ADD", esHito:false},
   {id:"desarrollo",     nombre:"Configuración y desarrollo",  color:"#028090", esHito:false},
@@ -3298,8 +3293,8 @@ function renderProyectos(){
   function calcEstadoPMO(d, pmo){
     const prog = calcProgreso(pmo);
     // Finalizado
-    // Detenido
-    if(d.estado==="Detenido") return {label:"Detenido", color:"#A32D2D", bg:"#FCEBEB"};
+    // Detenido desde PMO (no desde estado de demanda)
+    if(pmo.detenido) return {label:"Detenido", color:"#A32D2D", bg:"#FCEBEB"};
     if(d.estado==="Finalizado"||prog===100) return {label:"Finalizado", color:"#1D9E75", bg:"#E1F5EE"};
     // Pre-KickOff
     if(d.estado==="Pre-Kickoff"||d.estado==="Iniciativa aprobada") return {label:"Pre-KickOff", color:"#BA7517", bg:"#FAEEDA"};
@@ -3319,7 +3314,7 @@ function renderProyectos(){
   const preKickoff  = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Pre-KickOff"; }).length;
   const activos     = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="En proceso"; }).length;
   const atrasados   = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Atrasado"; }).length;
-  const detenidos   = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Detenido"; }).length;
+  const detenidos   = proyectos.filter(d=>getPMO(d._id).detenido===true).length;
   const finalizados = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Finalizado"; }).length;
 
   // Próximos hitos (dentro de los próximos 14 días)
@@ -3509,7 +3504,7 @@ function renderPMODetail(d, pmo){
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
-          ${d.estado!=='Detenido'
+          ${!pmo.detenido
             ? `<button onclick="abrirModalDetenido(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.3);border:1px solid rgba(163,45,45,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">⏸ Detener proyecto</button>`
             : `<span id="reactivar-wrap-${d._id}" style="display:inline-flex;align-items:center;gap:6px;">
                 <button onclick="document.getElementById('reactivar-confirm-${d._id}').style.display='inline-flex';this.style.display='none'" style="padding:6px 12px;background:rgba(29,158,117,.3);border:1px solid rgba(29,158,117,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">▶ Reactivar</button>
@@ -4006,7 +4001,7 @@ function sincronizarEstadoDesdeHito(idIni, idHito, realizado){
 
   // Regla 2: KickOff realizado → "En proceso" en demanda (no sobreescribir Detenido)
   if(idHito==="kickoff" && realizado){
-    if(d.estado !== "En proceso" && d.estado !== "Finalizado" && d.estado !== "Detenido"){
+    if(d.estado !== "En proceso" && d.estado !== "Finalizado"){
       d.estado = "En proceso";
       saveToStorage();
     }
@@ -4040,7 +4035,7 @@ function sincronizarEstadoDesdePMO(idIni){
 
   // Regla: avance en cualquier etapa → "En proceso" (no sobreescribir Detenido ni Finalizado)
   const hayAvance = ETAPAS_BASE.some(e=>(pmo.etapas?.[e.id]?.pct||0)>0);
-  if(hayAvance && d.estado !== "En proceso" && d.estado !== "Finalizado" && d.estado !== "Detenido"){
+  if(hayAvance && d.estado !== "En proceso" && d.estado !== "Finalizado"){
     d.estado = "En proceso";
     saveToStorage();
     update();
@@ -5119,11 +5114,7 @@ function confirmarDetenido(idIni){
   const comentario = document.getElementById("detenido-comentario")?.value.trim()||"";
   if(!comentario){ alert("Por favor ingresa el motivo de la detención."); return; }
 
-  // Update estado in DATOS
-  const d = DATOS.find(x=>x._id===idIni);
-  if(d){ d.estado = "Detenido"; saveToStorage(); }
-
-  // Save in PMO
+  // Save in PMO (estado de demanda NO cambia — solo se registra en PMO)
   const pmo = getPMO(idIni);
   pmo.detenido = true;
   pmo.detenidoFecha = fecha;
@@ -5145,8 +5136,6 @@ function confirmarDetenido(idIni){
 
 function reactivarProyecto(idIni){
   idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
-  const d = DATOS.find(x=>x._id===idIni);
-  if(d){ d.estado = "En proceso"; saveToStorage(); }
   const pmo = getPMO(idIni);
   pmo.detenido = false;
   setPMO(idIni, pmo);
@@ -5162,7 +5151,6 @@ function updateHeaderDate(){const n=new Date();document.getElementById("headerDa
 updateHeaderDate();
 setInterval(updateHeaderDate,60000);
 
-// Cargar datos desde Firestore y luego renderizar
 initFirestore().then(() => {
   DATOS = loadFromStorage();
   update();
