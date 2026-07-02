@@ -401,6 +401,16 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
 </style>
 </head>
 <body>
+<!-- Loading overlay Firestore -->
+<div id="fs-loading" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,26,44,.92);align-items:center;justify-content:center;flex-direction:column;gap:14px;">
+  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10C9E4" stroke-width="2" stroke-linecap="round">
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
+      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+    </path>
+  </svg>
+  <span style="color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;">Conectando con IT HUB...</span>
+  <span style="color:rgba(255,255,255,.45);font-family:'DM Sans',sans-serif;font-size:11px;">Cargando datos desde Firestore</span>
+</div>
 
 <!-- HEADER -->
 <header class="header">
@@ -1239,7 +1249,76 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
   </div>
 </div>
 
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script>
+// ══════════════════════════════════════════════
+// FIREBASE + CACHE EN MEMORIA
+// ══════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyDyx-pH9MIUcKOCabtysIDE4eCZo96hurc",
+  authDomain: "it-hub-levapan.firebaseapp.com",
+  projectId: "it-hub-levapan",
+  storageBucket: "it-hub-levapan.firebasestorage.app",
+  messagingSenderId: "373976009438",
+  appId: "1:373976009438:web:60821ecfa67285d91a504f",
+  measurementId: "G-KR997Z15W4"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const FS_COL = "ithub";
+
+// Cache en memoria: las funciones loadX()/saveX() leen/escriben aqui.
+// initFirestore() llena el cache desde Firestore al arrancar.
+let _cache = {
+  demanda:    { overrides: {}, custom: [] },
+  tareas:     [],
+  diario:     [],
+  macro:      [],
+  ef:         {},
+  pmo:        {},
+  macro_data: {}
+};
+
+// Escribe un documento en Firestore (fire-and-forget)
+function fsSet(docId, data){
+  db.collection(FS_COL).doc(docId).set(data)
+    .catch(e => console.warn("[Firestore] Error al guardar " + docId + ":", e));
+}
+
+// Carga todos los datos desde Firestore al cache en memoria
+async function initFirestore(){
+  const loading = document.getElementById("fs-loading");
+  if(loading) loading.style.display = "flex";
+  try {
+    const snap = await db.collection(FS_COL).get();
+    snap.forEach(doc => {
+      const id = doc.id;
+      const d  = doc.data();
+      if(id === "demanda")    _cache.demanda    = { overrides: d.overrides||{}, custom: d.custom||[] };
+      if(id === "tareas")     _cache.tareas     = d.items||[];
+      if(id === "diario")     _cache.diario     = d.items||[];
+      if(id === "macro")      _cache.macro      = d.items||[];
+      if(id === "ef")         _cache.ef         = d.ef||{};
+      if(id === "pmo")        _cache.pmo        = d.pmo||{};
+      if(id === "macro_data") _cache.macro_data = d.data||{};
+    });
+    console.log("[Firestore] Datos cargados correctamente.");
+  } catch(e){
+    console.warn("[Firestore] No disponible. Usando localStorage como respaldo:", e);
+    try { _cache.demanda    = JSON.parse(localStorage.getItem("levapan_demanda_v3") || '{"overrides":{},"custom":[]}'); } catch(_){}
+    try { _cache.tareas     = JSON.parse(localStorage.getItem("levapan_tareas_v1")  || "[]"); } catch(_){}
+    try { _cache.diario     = JSON.parse(localStorage.getItem("levapan_diario_v1")  || "[]"); } catch(_){}
+    try { _cache.macro      = JSON.parse(localStorage.getItem("levapan_macroprocesos_v1") || "[]"); } catch(_){}
+    try { _cache.ef         = JSON.parse(localStorage.getItem("levapan_ef_v1")      || "{}"); } catch(_){}
+    try { _cache.pmo        = JSON.parse(localStorage.getItem("levapan_pmo_v1")     || "{}"); } catch(_){}
+    try { _cache.macro_data = JSON.parse(localStorage.getItem("levapan_macro_data_v1") || "{}"); } catch(_){}
+  } finally {
+    if(loading) loading.style.display = "none";
+  }
+}
+
 // ══════════════════════════════════════════════
 // DATOS BASE
 // ══════════════════════════════════════════════
@@ -1319,53 +1398,38 @@ function DATOS_LOAD(){
 }
 
 function saveToStorage(){
-  try {
-    // Solo guardar overrides de base + entradas nuevas. Nunca duplicar base.
-    const overrides = {}; // {_id: {...campos editados}}
-    const custom = [];    // iniciativas nuevas no presentes en base
-
-    DATOS.forEach(d => {
-      const {_new, ...clean} = d;
-      const isBase = DATOS_BASE.some(b => b._id === clean._id);
-      if(isBase){
-        // Comparar con base para detectar cambios
-        const base = DATOS_BASE.find(b => b._id === clean._id);
-        const changed = Object.keys(clean).some(k => clean[k] !== base[k]);
-        if(changed) overrides[clean._id] = clean;
-      } else {
-        custom.push(clean);
-      }
-    });
-
-    localStorage.setItem(LS_KEY, JSON.stringify({overrides, custom}));
-  } catch(e){ console.warn("Error guardando:", e); }
+  const overrides = {};
+  const custom = [];
+  DATOS.forEach(d => {
+    const {_new, ...clean} = d;
+    const isBase = DATOS_BASE.some(b => b._id === clean._id);
+    if(isBase){
+      const base = DATOS_BASE.find(b => b._id === clean._id);
+      const changed = Object.keys(clean).some(k => clean[k] !== base[k]);
+      if(changed) overrides[clean._id] = clean;
+    } else {
+      custom.push(clean);
+    }
+  });
+  _cache.demanda = { overrides, custom };
+  fsSet("demanda", { overrides, custom });
 }
 
 function loadFromStorage(){
-  // Piso siempre son los 59 de DATOS_BASE, con sus _id fijos
   const base = DATOS_BASE.map(d => ({...d}));
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if(!raw) return base;
-
-    const {overrides = {}, custom = []} = JSON.parse(raw);
-
-    // Aplicar overrides sobre base (por _id)
-    const result = base.map(d => {
-      const override = overrides[d._id];
-      return override ? {...d, ...override} : d;
-    });
-
-    // Agregar iniciativas nuevas (nunca duplicar: filtrar si _id ya existe en base)
-    custom.forEach(d => {
-      if(!result.some(r => r._id === d._id)) result.push(d);
-    });
-
-    return result;
-  } catch(e){ return base; }
+  const { overrides = {}, custom = [] } = _cache.demanda;
+  const result = base.map(d => {
+    const override = overrides[d._id];
+    return override ? {...d, ...override} : d;
+  });
+  custom.forEach(d => {
+    if(!result.some(r => r._id === d._id)) result.push(d);
+  });
+  return result;
 }
 
-let DATOS = loadFromStorage();
+// DATOS se inicializa con la base; initFirestore() lo actualizara al arrancar
+let DATOS = DATOS_BASE.map(d => ({...d}));
 
 // ══════════════════════════════════════════════
 // HELPERS
@@ -2527,12 +2591,12 @@ const LS_TAREAS  = "levapan_tareas_v1";
 const LS_DIARIO  = "levapan_diario_v1";
 const LS_MACRO   = "levapan_macroprocesos_v1";
 
-function loadTareas(){ try{ return JSON.parse(localStorage.getItem(LS_TAREAS)||"[]"); }catch(e){ return []; } }
-function saveTareas(t){ try{ localStorage.setItem(LS_TAREAS, JSON.stringify(t)); }catch(e){} }
-function loadMacro(){ try{ return JSON.parse(localStorage.getItem(LS_MACRO)||"[]"); }catch(e){ return []; } }
-function saveMacro(m){ try{ localStorage.setItem(LS_MACRO, JSON.stringify(m)); }catch(e){} }
-function loadDiario(){ try{ return JSON.parse(localStorage.getItem(LS_DIARIO)||"[]"); }catch(e){ return []; } }
-function saveDiario(d){ try{ localStorage.setItem(LS_DIARIO, JSON.stringify(d)); }catch(e){} }
+function loadTareas(){ return _cache.tareas; }
+function saveTareas(t){ _cache.tareas = t; fsSet("tareas", {items: t}); }
+function loadMacro(){ return _cache.macro; }
+function saveMacro(m){ _cache.macro = m; fsSet("macro", {items: m}); }
+function loadDiario(){ return _cache.diario; }
+function saveDiario(d){ _cache.diario = d; fsSet("diario", {items: d}); }
 
 // ── PANEL TABS ─────────────────────────────────
 let currentDetailTab = "info";
@@ -2822,8 +2886,8 @@ function renderTareasGlobal(){
 const LS_EF = "levapan_ef_v1";
 const BENEFICIOS_OPTS = ["Ahorro de costos","Incremento de ingresos","Reducción de riesgo","Eficiencia operativa","Cumplimiento regulatorio"];
 
-function loadEF(){ try{ return JSON.parse(localStorage.getItem(LS_EF)||"{}"); }catch(e){ return {}; } }
-function saveEF(data){ try{ localStorage.setItem(LS_EF, JSON.stringify(data)); }catch(e){} }
+function loadEF(){ return _cache.ef; }
+function saveEF(data){ _cache.ef = data; fsSet("ef", {ef: data}); }
 
 function getEFData(id){ return (loadEF())[id] || {}; }
 function setEFData(id, data){ const all=loadEF(); all[id]=data; saveEF(all); }
@@ -3174,8 +3238,8 @@ const HITOS_BASE = [
   {id:"cierre",    nombre:"Cierre",               icono:"✅"},
 ];
 
-function loadPMO(){ try{ return JSON.parse(localStorage.getItem(LS_PMO)||"{}"); }catch(e){ return {}; } }
-function savePMO(d){ try{ localStorage.setItem(LS_PMO, JSON.stringify(d)); }catch(e){} }
+function loadPMO(){ return _cache.pmo; }
+function savePMO(d){ _cache.pmo = d; fsSet("pmo", {pmo: d}); }
 function getPMO(id){ const key=String(id); return (loadPMO())[key] || {etapas:{}, hitos:{}, equipo:[]}; }
 function setPMO(id, data){ const all=loadPMO(); all[String(id)]=data; savePMO(all); }
 
@@ -4810,8 +4874,8 @@ function eliminarNotaSubHito(idIni, idHito, idx, ni){
 // VISTA MACROPROCESOS
 // ══════════════════════════════════════════════
 const LS_MACRO_DATA = "levapan_macro_data_v1";
-function loadMacroData(){ try{ return JSON.parse(localStorage.getItem(LS_MACRO_DATA)||"{}"); }catch(e){ return {}; } }
-function saveMacroData(d){ try{ localStorage.setItem(LS_MACRO_DATA, JSON.stringify(d)); }catch(e){} }
+function loadMacroData(){ return _cache.macro_data; }
+function saveMacroData(d){ _cache.macro_data = d; fsSet("macro_data", {data: d}); }
 function getMacroData(nombre){ return (loadMacroData())[nombre]||{etapas:[],open:true}; }
 function setMacroData(nombre, data){ const all=loadMacroData(); all[nombre]=data; saveMacroData(all); }
 
@@ -5097,7 +5161,15 @@ const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","
 function updateHeaderDate(){const n=new Date();document.getElementById("headerDate").textContent=MESES[n.getMonth()]+" "+n.getFullYear();}
 updateHeaderDate();
 setInterval(updateHeaderDate,60000);
-update();
+
+// Cargar datos desde Firestore y luego renderizar
+initFirestore().then(() => {
+  DATOS = loadFromStorage();
+  update();
+}).catch(() => {
+  DATOS = loadFromStorage();
+  update();
+});
 </script>
 </body>
 </html>
