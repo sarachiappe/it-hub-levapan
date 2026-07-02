@@ -165,7 +165,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
 .pmo-main{display:flex;flex-direction:column;gap:0;}
 
 /* PMO KPIs */
-.pmo-kpi-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border);border-radius:8px 8px 0 0;overflow:hidden;}
+.pmo-kpi-bar{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border-bottom:1px solid var(--border);border-radius:8px 8px 0 0;overflow:hidden;}
 .pmo-kpi-card{background:var(--white);padding:13px 16px;cursor:pointer;transition:background .15s;border-top:3px solid transparent;}
 .pmo-kpi-card:hover{background:var(--off);}
 .pmo-kpi-card.active{background:var(--off);border-top-color:#10C9E4;}
@@ -401,16 +401,6 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
 </style>
 </head>
 <body>
-<!-- Loading overlay Firestore -->
-<div id="fs-loading" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(20,26,44,.92);align-items:center;justify-content:center;flex-direction:column;gap:14px;">
-  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10C9E4" stroke-width="2" stroke-linecap="round">
-    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
-      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
-    </path>
-  </svg>
-  <span style="color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;">Conectando con IT HUB...</span>
-  <span style="color:rgba(255,255,255,.45);font-family:'DM Sans',sans-serif;font-size:11px;">Cargando datos desde Firestore</span>
-</div>
 
 <!-- HEADER -->
 <header class="header">
@@ -1249,76 +1239,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
   </div>
 </div>
 
-<!-- Firebase SDK (compat) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script>
-// ══════════════════════════════════════════════
-// FIREBASE + CACHE EN MEMORIA
-// ══════════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyDyx-pH9MIUcKOCabtysIDE4eCZo96hurc",
-  authDomain: "it-hub-levapan.firebaseapp.com",
-  projectId: "it-hub-levapan",
-  storageBucket: "it-hub-levapan.firebasestorage.app",
-  messagingSenderId: "373976009438",
-  appId: "1:373976009438:web:60821ecfa67285d91a504f",
-  measurementId: "G-KR997Z15W4"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const FS_COL = "ithub";
-
-// Cache en memoria: las funciones loadX()/saveX() leen/escriben aquí.
-// initFirestore() llena el cache desde Firestore al arrancar.
-let _cache = {
-  demanda:    { overrides: {}, custom: [] },
-  tareas:     [],
-  diario:     [],
-  macro:      [],
-  ef:         {},
-  pmo:        {},
-  macro_data: {}
-};
-
-// Escribe un documento en Firestore (fire-and-forget)
-function fsSet(docId, data){
-  db.collection(FS_COL).doc(docId).set(data)
-    .catch(e => console.warn("[Firestore] Error al guardar " + docId + ":", e));
-}
-
-// Carga todos los datos desde Firestore al cache en memoria
-async function initFirestore(){
-  const loading = document.getElementById("fs-loading");
-  if(loading) loading.style.display = "flex";
-  try {
-    const snap = await db.collection(FS_COL).get();
-    snap.forEach(doc => {
-      const id = doc.id;
-      const d  = doc.data();
-      if(id === "demanda")    _cache.demanda    = { overrides: d.overrides||{}, custom: d.custom||[] };
-      if(id === "tareas")     _cache.tareas     = d.items||[];
-      if(id === "diario")     _cache.diario     = d.items||[];
-      if(id === "macro")      _cache.macro      = d.items||[];
-      if(id === "ef")         _cache.ef         = d.ef||{};
-      if(id === "pmo")        _cache.pmo        = d.pmo||{};
-      if(id === "macro_data") _cache.macro_data = d.data||{};
-    });
-    console.log("[Firestore] Datos cargados correctamente.");
-  } catch(e){
-    console.warn("[Firestore] No disponible. Usando localStorage como respaldo:", e);
-    try { _cache.demanda    = JSON.parse(localStorage.getItem("levapan_demanda_v3") || '{"overrides":{},"custom":[]}'); } catch(_){}
-    try { _cache.tareas     = JSON.parse(localStorage.getItem("levapan_tareas_v1")  || "[]"); } catch(_){}
-    try { _cache.diario     = JSON.parse(localStorage.getItem("levapan_diario_v1")  || "[]"); } catch(_){}
-    try { _cache.macro      = JSON.parse(localStorage.getItem("levapan_macroprocesos_v1") || "[]"); } catch(_){}
-    try { _cache.ef         = JSON.parse(localStorage.getItem("levapan_ef_v1")      || "{}"); } catch(_){}
-    try { _cache.pmo        = JSON.parse(localStorage.getItem("levapan_pmo_v1")     || "{}"); } catch(_){}
-    try { _cache.macro_data = JSON.parse(localStorage.getItem("levapan_macro_data_v1") || "{}"); } catch(_){}
-  } finally {
-    if(loading) loading.style.display = "none";
-  }
-}
-
 // ══════════════════════════════════════════════
 // DATOS BASE
 // ══════════════════════════════════════════════
@@ -1390,40 +1311,61 @@ const DATOS_BASE = [
 // Los IDs de DATOS_BASE son fijos (0-58). Las nuevas iniciativas usan timestamp.
 const LS_KEY = "levapan_demanda_v3";
 
+function DATOS_LOAD(){
+  // Re-reads DATOS from localStorage to ensure fresh state after external writes
+  const raw = loadFromStorage();
+  DATOS.length = 0;
+  raw.forEach(d=>DATOS.push(d));
+}
+
 function saveToStorage(){
-  // Separar overrides de base vs. entradas nuevas
-  const overrides = {};
-  const custom = [];
-  DATOS.forEach(d => {
-    const {_new, ...clean} = d;
-    const isBase = DATOS_BASE.some(b => b._id === clean._id);
-    if(isBase){
-      const base = DATOS_BASE.find(b => b._id === clean._id);
-      const changed = Object.keys(clean).some(k => clean[k] !== base[k]);
-      if(changed) overrides[clean._id] = clean;
-    } else {
-      custom.push(clean);
-    }
-  });
-  _cache.demanda = { overrides, custom };
-  fsSet("demanda", { overrides, custom });
+  try {
+    // Solo guardar overrides de base + entradas nuevas. Nunca duplicar base.
+    const overrides = {}; // {_id: {...campos editados}}
+    const custom = [];    // iniciativas nuevas no presentes en base
+
+    DATOS.forEach(d => {
+      const {_new, ...clean} = d;
+      const isBase = DATOS_BASE.some(b => b._id === clean._id);
+      if(isBase){
+        // Comparar con base para detectar cambios
+        const base = DATOS_BASE.find(b => b._id === clean._id);
+        const changed = Object.keys(clean).some(k => clean[k] !== base[k]);
+        if(changed) overrides[clean._id] = clean;
+      } else {
+        custom.push(clean);
+      }
+    });
+
+    localStorage.setItem(LS_KEY, JSON.stringify({overrides, custom}));
+  } catch(e){ console.warn("Error guardando:", e); }
 }
 
 function loadFromStorage(){
+  // Piso siempre son los 59 de DATOS_BASE, con sus _id fijos
   const base = DATOS_BASE.map(d => ({...d}));
-  const { overrides = {}, custom = [] } = _cache.demanda;
-  const result = base.map(d => {
-    const override = overrides[d._id];
-    return override ? {...d, ...override} : d;
-  });
-  custom.forEach(d => {
-    if(!result.some(r => r._id === d._id)) result.push(d);
-  });
-  return result;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return base;
+
+    const {overrides = {}, custom = []} = JSON.parse(raw);
+
+    // Aplicar overrides sobre base (por _id)
+    const result = base.map(d => {
+      const override = overrides[d._id];
+      return override ? {...d, ...override} : d;
+    });
+
+    // Agregar iniciativas nuevas (nunca duplicar: filtrar si _id ya existe en base)
+    custom.forEach(d => {
+      if(!result.some(r => r._id === d._id)) result.push(d);
+    });
+
+    return result;
+  } catch(e){ return base; }
 }
 
-// DATOS se inicializa con la base; initFirestore() lo actualizará al arrancar
-let DATOS = DATOS_BASE.map(d => ({...d}));
+let DATOS = loadFromStorage();
 
 // ══════════════════════════════════════════════
 // HELPERS
@@ -2585,12 +2527,12 @@ const LS_TAREAS  = "levapan_tareas_v1";
 const LS_DIARIO  = "levapan_diario_v1";
 const LS_MACRO   = "levapan_macroprocesos_v1";
 
-function loadTareas(){ return _cache.tareas; }
-function saveTareas(t){ _cache.tareas = t; fsSet("tareas", {items: t}); }
-function loadMacro(){ return _cache.macro; }
-function saveMacro(m){ _cache.macro = m; fsSet("macro", {items: m}); }
-function loadDiario(){ return _cache.diario; }
-function saveDiario(d){ _cache.diario = d; fsSet("diario", {items: d}); }
+function loadTareas(){ try{ return JSON.parse(localStorage.getItem(LS_TAREAS)||"[]"); }catch(e){ return []; } }
+function saveTareas(t){ try{ localStorage.setItem(LS_TAREAS, JSON.stringify(t)); }catch(e){} }
+function loadMacro(){ try{ return JSON.parse(localStorage.getItem(LS_MACRO)||"[]"); }catch(e){ return []; } }
+function saveMacro(m){ try{ localStorage.setItem(LS_MACRO, JSON.stringify(m)); }catch(e){} }
+function loadDiario(){ try{ return JSON.parse(localStorage.getItem(LS_DIARIO)||"[]"); }catch(e){ return []; } }
+function saveDiario(d){ try{ localStorage.setItem(LS_DIARIO, JSON.stringify(d)); }catch(e){} }
 
 // ── PANEL TABS ─────────────────────────────────
 let currentDetailTab = "info";
@@ -2880,8 +2822,8 @@ function renderTareasGlobal(){
 const LS_EF = "levapan_ef_v1";
 const BENEFICIOS_OPTS = ["Ahorro de costos","Incremento de ingresos","Reducción de riesgo","Eficiencia operativa","Cumplimiento regulatorio"];
 
-function loadEF(){ return _cache.ef; }
-function saveEF(data){ _cache.ef = data; fsSet("ef", {ef: data}); }
+function loadEF(){ try{ return JSON.parse(localStorage.getItem(LS_EF)||"{}"); }catch(e){ return {}; } }
+function saveEF(data){ try{ localStorage.setItem(LS_EF, JSON.stringify(data)); }catch(e){} }
 
 function getEFData(id){ return (loadEF())[id] || {}; }
 function setEFData(id, data){ const all=loadEF(); all[id]=data; saveEF(all); }
@@ -3208,7 +3150,7 @@ function recalcularTiempos(){
 // PMO — MÓDULO DE PROYECTOS
 // ══════════════════════════════════════════════
 const LS_PMO = "levapan_pmo_v1";
-const ESTADOS_PROYECTO = ["Iniciativa aprobada","Pre-Kickoff","En proceso","Finalizado"];
+const ESTADOS_PROYECTO = ["Iniciativa aprobada","Pre-Kickoff","En proceso","Detenido","Finalizado"];
 const ETAPAS_BASE = [
   {id:"descubrimiento", nombre:"Descubrimiento y análisis",  color:"#378ADD", esHito:false},
   {id:"desarrollo",     nombre:"Configuración y desarrollo",  color:"#028090", esHito:false},
@@ -3232,8 +3174,8 @@ const HITOS_BASE = [
   {id:"cierre",    nombre:"Cierre",               icono:"✅"},
 ];
 
-function loadPMO(){ return _cache.pmo; }
-function savePMO(d){ _cache.pmo = d; fsSet("pmo", {pmo: d}); }
+function loadPMO(){ try{ return JSON.parse(localStorage.getItem(LS_PMO)||"{}"); }catch(e){ return {}; } }
+function savePMO(d){ try{ localStorage.setItem(LS_PMO, JSON.stringify(d)); }catch(e){} }
 function getPMO(id){ const key=String(id); return (loadPMO())[key] || {etapas:{}, hitos:{}, equipo:[]}; }
 function setPMO(id, data){ const all=loadPMO(); all[String(id)]=data; savePMO(all); }
 
@@ -3292,6 +3234,8 @@ function renderProyectos(){
   function calcEstadoPMO(d, pmo){
     const prog = calcProgreso(pmo);
     // Finalizado
+    // Detenido
+    if(d.estado==="Detenido") return {label:"Detenido", color:"#A32D2D", bg:"#FCEBEB"};
     if(d.estado==="Finalizado"||prog===100) return {label:"Finalizado", color:"#1D9E75", bg:"#E1F5EE"};
     // Pre-KickOff
     if(d.estado==="Pre-Kickoff"||d.estado==="Iniciativa aprobada") return {label:"Pre-KickOff", color:"#BA7517", bg:"#FAEEDA"};
@@ -3311,6 +3255,7 @@ function renderProyectos(){
   const preKickoff  = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Pre-KickOff"; }).length;
   const activos     = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="En proceso"; }).length;
   const atrasados   = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Atrasado"; }).length;
+  const detenidos   = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Detenido"; }).length;
   const finalizados = proyectos.filter(d=>{ const e=calcEstadoPMO(d,getPMO(d._id)); return e.label==="Finalizado"; }).length;
 
   // Próximos hitos (dentro de los próximos 14 días)
@@ -3344,6 +3289,10 @@ function renderProyectos(){
     <div class="pmo-kpi-card${pmoFiltro==='Atrasado'?' active':''}" onclick="setPmoFiltro('Atrasado')">
       <div class="pmo-kpi-val" style="color:#A32D2D">${atrasados}</div>
       <div class="pmo-kpi-label">Atrasados</div>
+    </div>
+    <div class="pmo-kpi-card${pmoFiltro==='Detenido'?' active':''}" onclick="setPmoFiltro('Detenido')">
+      <div class="pmo-kpi-val" style="color:#888780">${detenidos}</div>
+      <div class="pmo-kpi-label">Detenidos</div>
     </div>
     <div class="pmo-kpi-card${pmoFiltro==='Finalizado'?' active':''}" onclick="setPmoFiltro('Finalizado')">
       <div class="pmo-kpi-val" style="color:#1D9E75">${finalizados}</div>
@@ -3492,9 +3441,21 @@ function renderPMODetail(d, pmo){
             <span style="font-size:12px;font-weight:600;color:${ac};">${d.area}</span>
             <span class="badge badge-${d.estado.replace(/ /g,'-')}">${d.estado}</span>
             <span style="font-size:11px;color:rgba(255,255,255,.6);">Progreso: <strong style="color:white">${prog}%</strong></span>
+            ${pmo.detenido?`<span style="font-size:11px;background:#A32D2D;color:white;padding:2px 8px;border-radius:8px;">⏸ Detenido ${pmo.detenidoFecha?'· '+fmtFecha(pmo.detenidoFecha):''}</span>`:''}
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
+          ${d.estado!=='Detenido'
+            ? `<button onclick="abrirModalDetenido(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.3);border:1px solid rgba(163,45,45,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">⏸ Detener proyecto</button>`
+            : `<span id="reactivar-wrap-${d._id}" style="display:inline-flex;align-items:center;gap:6px;">
+                <button onclick="document.getElementById('reactivar-confirm-${d._id}').style.display='inline-flex';this.style.display='none'" style="padding:6px 12px;background:rgba(29,158,117,.3);border:1px solid rgba(29,158,117,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">▶ Reactivar</button>
+                <span id="reactivar-confirm-${d._id}" style="display:none;align-items:center;gap:6px;font-size:12px;color:white;">
+                  ¿Confirmar?
+                  <button onclick="reactivarProyecto(${d._id})" style="padding:4px 10px;background:rgba(29,158,117,.6);border:1px solid rgba(29,158,117,.7);border-radius:5px;font-size:12px;color:white;cursor:pointer;">Sí</button>
+                  <button onclick="document.getElementById('reactivar-confirm-${d._id}').style.display='none';document.getElementById('reactivar-wrap-${d._id}').querySelector('button').style.display='inline-flex'" style="padding:4px 10px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:5px;font-size:12px;color:white;cursor:pointer;">No</button>
+                </span>
+              </span>`
+          }
           <button onclick="openDetail(${DATOS.indexOf(d)})" style="padding:6px 12px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">Ver iniciativa →</button>
           <button class="pmo-panel-close" onclick="cerrarPanelProyecto()">✕</button>
         </div>
@@ -3979,12 +3940,11 @@ function guardarHito(idIni, idHito){
 function sincronizarEstadoDesdeHito(idIni, idHito, realizado){
   const d = DATOS.find(x=>x._id===idIni); if(!d) return;
 
-  // Regla 2: KickOff realizado → "En proceso" en demanda
+  // Regla 2: KickOff realizado → "En proceso" en demanda (no sobreescribir Detenido)
   if(idHito==="kickoff" && realizado){
-    if(d.estado !== "En proceso" && d.estado !== "Finalizado"){
+    if(d.estado !== "En proceso" && d.estado !== "Finalizado" && d.estado !== "Detenido"){
       d.estado = "En proceso";
       saveToStorage();
-      console.log("Sincronizado: KickOff realizado → En proceso");
     }
   }
   // KickOff desmarcado → volver a Pre-Kickoff si estaba En proceso
@@ -4014,9 +3974,9 @@ function sincronizarEstadoDesdePMO(idIni){
   const pmo = getPMO(idIni);
   const prog = calcProgreso(pmo);
 
-  // Regla: avance en cualquier etapa → "En proceso"
+  // Regla: avance en cualquier etapa → "En proceso" (no sobreescribir Detenido ni Finalizado)
   const hayAvance = ETAPAS_BASE.some(e=>(pmo.etapas?.[e.id]?.pct||0)>0);
-  if(hayAvance && d.estado !== "En proceso" && d.estado !== "Finalizado"){
+  if(hayAvance && d.estado !== "En proceso" && d.estado !== "Finalizado" && d.estado !== "Detenido"){
     d.estado = "En proceso";
     saveToStorage();
     update();
@@ -4697,15 +4657,161 @@ function _eliminarSubDesdeModal(){
   eliminarSubEtapaModal(idIniNum, parentId, idx, tipo);
 }
 
-function abrirNotasSubEtapa(idIni, idEtapa, idx){ /* TODO */ }
-function abrirNotasSubHito(idIni, idHito, idx){ /* TODO */ }
+function abrirNotasSubEtapa(idIni, idEtapa, idx){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  idx = Number(idx);
+  const etapa = ETAPAS_BASE.find(e=>e.id===idEtapa);
+  const pmo = getPMO(idIni);
+  const se = pmo.etapas?.[idEtapa]?.subetapas?.[idx]||{};
+  if(!se.notas2) se.notas2 = [];
+  const notas = se.notas2;
+  const color = etapa?.color||'var(--teal)';
+  const label = se.nombre||`Tarea ${idx+1}`;
+
+  const notasHTML = notas.length===0
+    ? `<div style="font-size:12px;color:var(--gray);font-style:italic;padding:8px 0;">Sin comentarios todavía.</div>`
+    : notas.slice().reverse().map((n,i)=>`
+      <div style="background:var(--off);border-radius:7px;padding:10px 12px;margin-bottom:8px;border-left:3px solid ${color};">
+        <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--gray);margin-bottom:4px;">${n.fecha}</div>
+        <div style="font-size:13px;color:var(--navy);line-height:1.5;">${n.texto.replace(/\n/g,'<br>')}</div>
+        <button onclick="eliminarNotaSubEtapa('${idIni}','${idEtapa}',${idx},${notas.length-1-i})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray);margin-top:4px;padding:0;float:right;" onmouseover="this.style.color='#A32D2D'" onmouseout="this.style.color='var(--gray)'">✕ eliminar</button>
+      </div>`).join('');
+
+  const html = `<div style="position:fixed;inset:0;background:rgba(15,32,68,.5);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px;" id="notas-subetapa-overlay" onclick="if(event.target===this)this.remove()">
+    <div style="background:var(--white);border-radius:12px;width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:16px 20px;background:#141A2C;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:2px;">Comentarios · ${etapa?.nombre||''}</div>
+          <div style="font-size:15px;font-weight:600;color:white;display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:2px;background:${color};"></span>${label}</div>
+        </div>
+        <button onclick="document.getElementById('notas-subetapa-overlay').remove()" style="background:rgba(255,255,255,.1);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:white;font-size:14px;">✕</button>
+      </div>
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <textarea id="nota-subetapa-input" placeholder="Escribe un comentario..." style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);outline:none;resize:none;min-height:72px;line-height:1.5;" onfocus="this.style.borderColor='${color}'" onblur="this.style.borderColor='var(--border)'"></textarea>
+        <button onclick="guardarNotaSubEtapa('${idIni}','${idEtapa}',${idx})" style="margin-top:8px;padding:7px 16px;background:${color};border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;float:right;">+ Registrar</button>
+        <div style="clear:both;"></div>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;" id="notas-subetapa-lista">${notasHTML}</div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function guardarNotaSubEtapa(idIni, idEtapa, idx){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  idx = Number(idx);
+  const texto = document.getElementById("nota-subetapa-input")?.value.trim();
+  if(!texto) return;
+  const pmo = getPMO(idIni);
+  if(!pmo.etapas?.[idEtapa]?.subetapas?.[idx]) return;
+  if(!pmo.etapas[idEtapa].subetapas[idx].notas2) pmo.etapas[idEtapa].subetapas[idx].notas2=[];
+  pmo.etapas[idEtapa].subetapas[idx].notas2.push({
+    texto, fecha: new Date().toLocaleString('es-CO',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  });
+  setPMO(idIni, pmo);
+  document.getElementById("nota-subetapa-input").value="";
+  const etapa = ETAPAS_BASE.find(e=>e.id===idEtapa);
+  const notas = pmo.etapas[idEtapa].subetapas[idx].notas2;
+  const color = etapa?.color||'var(--teal)';
+  document.getElementById("notas-subetapa-lista").innerHTML = notas.slice().reverse().map((n,i)=>`
+    <div style="background:var(--off);border-radius:7px;padding:10px 12px;margin-bottom:8px;border-left:3px solid ${color};">
+      <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--gray);margin-bottom:4px;">${n.fecha}</div>
+      <div style="font-size:13px;color:var(--navy);line-height:1.5;">${n.texto.replace(/\n/g,'<br>')}</div>
+      <button onclick="eliminarNotaSubEtapa('${idIni}','${idEtapa}',${idx},${notas.length-1-i})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray);margin-top:4px;padding:0;float:right;">✕ eliminar</button>
+    </div>`).join('');
+  refrescarPanelPMO(idIni);
+}
+
+function eliminarNotaSubEtapa(idIni, idEtapa, idx, ni){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  if(!confirm("¿Eliminar este comentario?")) return;
+  const pmo = getPMO(idIni);
+  pmo.etapas[idEtapa].subetapas[Number(idx)].notas2.splice(Number(ni),1);
+  setPMO(idIni, pmo);
+  document.getElementById("notas-subetapa-overlay")?.remove();
+  abrirNotasSubEtapa(idIni, idEtapa, idx);
+  refrescarPanelPMO(idIni);
+}
+
+function abrirNotasSubHito(idIni, idHito, idx){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  idx = Number(idx);
+  const hito = HITOS_BASE.find(h=>h.id===idHito);
+  const pmo = getPMO(idIni);
+  const se = pmo.hitos?.[idHito]?.subetapas?.[idx]||{};
+  if(!se.notas2) se.notas2 = [];
+  const notas = se.notas2;
+  const label = se.nombre||`Tarea ${idx+1}`;
+
+  const notasHTML = notas.length===0
+    ? `<div style="font-size:12px;color:var(--gray);font-style:italic;padding:8px 0;">Sin comentarios todavía.</div>`
+    : notas.slice().reverse().map((n,i)=>`
+      <div style="background:var(--off);border-radius:7px;padding:10px 12px;margin-bottom:8px;border-left:3px solid #141A2C;">
+        <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--gray);margin-bottom:4px;">${n.fecha}</div>
+        <div style="font-size:13px;color:var(--navy);line-height:1.5;">${n.texto.replace(/\n/g,'<br>')}</div>
+        <button onclick="eliminarNotaSubHito('${idIni}','${idHito}',${idx},${notas.length-1-i})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray);margin-top:4px;padding:0;float:right;" onmouseover="this.style.color='#A32D2D'" onmouseout="this.style.color='var(--gray)'">✕ eliminar</button>
+      </div>`).join('');
+
+  const html = `<div style="position:fixed;inset:0;background:rgba(15,32,68,.5);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px;" id="notas-subhito-overlay" onclick="if(event.target===this)this.remove()">
+    <div style="background:var(--white);border-radius:12px;width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:16px 20px;background:#141A2C;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+        <div>
+          <div style="font-size:10px;color:rgba(255,255,255,.5);text-transform:uppercase;margin-bottom:2px;">Comentarios · ${hito?.icono} ${hito?.nombre||''}</div>
+          <div style="font-size:15px;font-weight:600;color:white;">${label}</div>
+        </div>
+        <button onclick="document.getElementById('notas-subhito-overlay').remove()" style="background:rgba(255,255,255,.1);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:white;font-size:14px;">✕</button>
+      </div>
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <textarea id="nota-subhito-input" placeholder="Escribe un comentario..." style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);outline:none;resize:none;min-height:72px;line-height:1.5;"></textarea>
+        <button onclick="guardarNotaSubHito('${idIni}','${idHito}',${idx})" style="margin-top:8px;padding:7px 16px;background:#141A2C;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;float:right;">+ Registrar</button>
+        <div style="clear:both;"></div>
+      </div>
+      <div style="padding:14px 20px;overflow-y:auto;" id="notas-subhito-lista">${notasHTML}</div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function guardarNotaSubHito(idIni, idHito, idx){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  idx = Number(idx);
+  const texto = document.getElementById("nota-subhito-input")?.value.trim();
+  if(!texto) return;
+  const pmo = getPMO(idIni);
+  if(!pmo.hitos?.[idHito]?.subetapas?.[idx]) return;
+  if(!pmo.hitos[idHito].subetapas[idx].notas2) pmo.hitos[idHito].subetapas[idx].notas2=[];
+  pmo.hitos[idHito].subetapas[idx].notas2.push({
+    texto, fecha: new Date().toLocaleString('es-CO',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  });
+  setPMO(idIni, pmo);
+  document.getElementById("nota-subhito-input").value="";
+  const notas = pmo.hitos[idHito].subetapas[idx].notas2;
+  document.getElementById("notas-subhito-lista").innerHTML = notas.slice().reverse().map((n,i)=>`
+    <div style="background:var(--off);border-radius:7px;padding:10px 12px;margin-bottom:8px;border-left:3px solid #141A2C;">
+      <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--gray);margin-bottom:4px;">${n.fecha}</div>
+      <div style="font-size:13px;color:var(--navy);line-height:1.5;">${n.texto.replace(/\n/g,'<br>')}</div>
+      <button onclick="eliminarNotaSubHito('${idIni}','${idHito}',${idx},${notas.length-1-i})" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray);margin-top:4px;padding:0;float:right;">✕ eliminar</button>
+    </div>`).join('');
+  refrescarPanelPMO(idIni);
+}
+
+function eliminarNotaSubHito(idIni, idHito, idx, ni){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  if(!confirm("¿Eliminar este comentario?")) return;
+  const pmo = getPMO(idIni);
+  pmo.hitos[idHito].subetapas[Number(idx)].notas2.splice(Number(ni),1);
+  setPMO(idIni, pmo);
+  document.getElementById("notas-subhito-overlay")?.remove();
+  abrirNotasSubHito(idIni, idHito, idx);
+  refrescarPanelPMO(idIni);
+}
 
 // ══════════════════════════════════════════════
 // VISTA MACROPROCESOS
 // ══════════════════════════════════════════════
 const LS_MACRO_DATA = "levapan_macro_data_v1";
-function loadMacroData(){ return _cache.macro_data; }
-function saveMacroData(d){ _cache.macro_data = d; fsSet("macro_data", {data: d}); }
+function loadMacroData(){ try{ return JSON.parse(localStorage.getItem(LS_MACRO_DATA)||"{}"); }catch(e){ return {}; } }
+function saveMacroData(d){ try{ localStorage.setItem(LS_MACRO_DATA, JSON.stringify(d)); }catch(e){} }
 function getMacroData(nombre){ return (loadMacroData())[nombre]||{etapas:[],open:true}; }
 function setMacroData(nombre, data){ const all=loadMacroData(); all[nombre]=data; saveMacroData(all); }
 
@@ -4913,20 +5019,85 @@ function eliminarSubMacro(nombre, ei, si){
   renderMacroProcesos();
 }
 
+function abrirModalDetenido(idIni){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  document.getElementById("detenido-modal")?.remove();
+  const hoy = new Date().toISOString().slice(0,10);
+  const html = `<div id="detenido-modal" style="position:fixed;inset:0;background:rgba(15,32,68,.5);z-index:900;display:flex;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target.id==='detenido-modal')this.remove()">
+    <div style="background:var(--white);border-radius:12px;width:100%;max-width:440px;overflow:hidden;">
+      <div style="padding:16px 20px;background:#A32D2D;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:15px;font-weight:600;color:white;">⏸ Detener proyecto</div>
+        <button onclick="document.getElementById('detenido-modal').remove()" style="background:rgba(255,255,255,.15);border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;color:white;font-size:14px;">✕</button>
+      </div>
+      <div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;">
+        <div style="font-size:13px;color:var(--gray);">Esta acción cambiará el estado de la iniciativa a <strong>"Detenido"</strong> y quedará registrado con fecha y comentario.</div>
+        <div>
+          <div style="font-size:11px;color:var(--gray);margin-bottom:4px;">Fecha de detención</div>
+          <input id="detenido-fecha" type="date" value="${hoy}" class="ef-input">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--gray);margin-bottom:4px;">Motivo o comentario</div>
+          <textarea id="detenido-comentario" placeholder="¿Por qué se detiene el proyecto?" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);outline:none;resize:none;min-height:80px;line-height:1.5;" onfocus="this.style.borderColor='#A32D2D'" onblur="this.style.borderColor='var(--border)'"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="document.getElementById('detenido-modal').remove()" style="padding:8px 16px;border:1px solid var(--border);border-radius:6px;background:white;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;">Cancelar</button>
+          <button onclick="confirmarDetenido(${idIni})" style="padding:8px 16px;background:#A32D2D;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;">Confirmar detención</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function confirmarDetenido(idIni){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  const fecha      = document.getElementById("detenido-fecha")?.value||"";
+  const comentario = document.getElementById("detenido-comentario")?.value.trim()||"";
+  if(!comentario){ alert("Por favor ingresa el motivo de la detención."); return; }
+
+  // Update estado in DATOS
+  const d = DATOS.find(x=>x._id===idIni);
+  if(d){ d.estado = "Detenido"; saveToStorage(); }
+
+  // Save in PMO
+  const pmo = getPMO(idIni);
+  pmo.detenido = true;
+  pmo.detenidoFecha = fecha;
+  pmo.detenidoComentario = comentario;
+  if(!pmo.detenidoHistorial) pmo.detenidoHistorial = [];
+  pmo.detenidoHistorial.push({
+    fecha, comentario,
+    registrado: new Date().toLocaleString('es-CO',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  });
+  setPMO(idIni, pmo);
+
+  document.getElementById("detenido-modal")?.remove();
+  // Force reload from storage to ensure fresh state
+  DATOS_LOAD();
+  renderProyectos();
+  refrescarPanelPMO(idIni);
+  update();
+}
+
+function reactivarProyecto(idIni){
+  idIni = typeof idIni==='string'?(isNaN(idIni)?idIni:Number(idIni)):idIni;
+  const d = DATOS.find(x=>x._id===idIni);
+  if(d){ d.estado = "En proceso"; saveToStorage(); }
+  const pmo = getPMO(idIni);
+  pmo.detenido = false;
+  setPMO(idIni, pmo);
+  DATOS_LOAD();
+  renderProyectos();
+  refrescarPanelPMO(idIni);
+  update();
+}
+
 // INIT
 const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 function updateHeaderDate(){const n=new Date();document.getElementById("headerDate").textContent=MESES[n.getMonth()]+" "+n.getFullYear();}
 updateHeaderDate();
 setInterval(updateHeaderDate,60000);
-
-// Cargar datos desde Firestore y luego renderizar
-initFirestore().then(() => {
-  DATOS = loadFromStorage();
-  update();
-}).catch(() => {
-  DATOS = loadFromStorage();
-  update();
-});
+update();
 </script>
 </body>
 </html>
