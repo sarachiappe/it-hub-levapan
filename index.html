@@ -1337,7 +1337,7 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const FS_COL = "ithub";
 
-let _cache = { demanda:{overrides:{},custom:[]}, tareas:[], diario:[], macro:[], ef:{}, pmo:{}, macro_data:{} };
+let _cache = { demanda:{overrides:{},custom:[]}, tareas:[], diario:[], macro:[], ef:{}, pmo:{}, macro_data:{}, infra:null };
 let _firestoreReady = false;
 
 function fsSet(docId, data){
@@ -1359,6 +1359,7 @@ async function initFirestore(){
       if(id==="ef")         _cache.ef         =d.ef||{};
       if(id==="pmo")        _cache.pmo        =d.pmo||{};
       if(id==="macro_data") _cache.macro_data =d.data||{};
+      if(id==="infra")      _cache.infra      =d.items||null;
     });
     console.log("[Firestore] Datos cargados correctamente.");
   } catch(e){
@@ -1370,6 +1371,7 @@ async function initFirestore(){
     try{_cache.ef         =JSON.parse(localStorage.getItem("levapan_ef_v1")||"{}");}catch(_){}
     try{_cache.pmo        =JSON.parse(localStorage.getItem("levapan_pmo_v1")||"{}");}catch(_){}
     try{_cache.macro_data =JSON.parse(localStorage.getItem("levapan_macro_data_v1")||"{}");}catch(_){}
+    try{_cache.infra      =JSON.parse(localStorage.getItem("levapan_infra_v1")||"null");}catch(_){}
   } finally {
     _firestoreReady=true;
     if(loading) loading.style.display="none";
@@ -4337,32 +4339,26 @@ const INFRA_INITIAL = [
 ];
 
 function loadInfra(){
-  try{
-    const raw = JSON.parse(localStorage.getItem(LS_INFRA)||"null");
-    if(!raw){
-      // Normalize initial data: convert 0-1 decimals to 0-100 integers
-      const init = JSON.parse(JSON.stringify(INFRA_INITIAL)).map(p=>({...p, pct:Math.round((p.pct||0)*100)}));
-      saveInfra(init);
-      return init;
-    }
-    // Migrate old decimal pct values if needed
+  // Si ya hay datos en cache (desde Firestore), usarlos
+  if(_cache.infra !== null && _cache.infra !== undefined){
+    const data = _cache.infra;
+    // Migrar actividades de string a objeto si es necesario
     let migrated = false;
-    raw.forEach(p=>{
-      if(p.pct>0 && p.pct<=1){ p.pct=Math.round(p.pct*100); migrated=true; }
-      // Migrate string activities to objects
+    data.forEach(p=>{
       if(p.actividades && p.actividades.length && typeof p.actividades[0]==='string'){
         p.actividades = p.actividades.map(a=>({texto:a,hecho:false,fecha:new Date().toISOString().slice(0,10)}));
         migrated=true;
       }
     });
-    if(migrated) saveInfra(raw);
-    return raw;
-  }catch(e){
-    const init = JSON.parse(JSON.stringify(INFRA_INITIAL)).map(p=>({...p, pct:Math.round((p.pct||0)*100)}));
-    return init;
+    if(migrated) saveInfra(data);
+    return data;
   }
+  // Primera vez: inicializar desde INFRA_INITIAL (pct ya son enteros 0-100)
+  const init = JSON.parse(JSON.stringify(INFRA_INITIAL));
+  saveInfra(init);
+  return init;
 }
-function saveInfra(d){ try{ localStorage.setItem(LS_INFRA, JSON.stringify(d)); }catch(e){} }
+function saveInfra(d){ _cache.infra = d; fsSet("infra", {items: d}); }
 function nextInfraId(){ const d=loadInfra(); return d.length?Math.max(...d.map(x=>x._id))+1:1; }
 
 // ── MACROPROCESOS ─────────────────────────────
