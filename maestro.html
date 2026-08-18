@@ -610,7 +610,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
     </div>
     <div class="search-wrap" style="max-width:260px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input class="search-input" id="searchInput" placeholder="Buscar proyecto..." type="text">
+      <input class="search-input" id="searchInput" placeholder="Buscar..." type="text">
     </div>
     <span class="result-count" id="resultCount"></span>
     <div style="display:flex;gap:8px;margin-left:auto;">
@@ -3317,6 +3317,7 @@ function renderSoporte(){
   let sopsFiltrados = [...SOPORTES];
   if(_estadosFiltro.length) sopsFiltrados = sopsFiltrados.filter(s=>_estadosFiltro.includes(s.estado_sop));
   if(_ingFiltro) sopsFiltrados = sopsFiltrados.filter(s=>s.ing===_ingFiltro);
+  if(_searchQ){ const q=_searchQ.toLowerCase(); sopsFiltrados=sopsFiltrados.filter(s=>(s.nombre||"").toLowerCase().includes(q)||(s.desc||"").toLowerCase().includes(q)||(s.ing||"").toLowerCase().includes(q)||(s.proyecto||"").toLowerCase().includes(q)); }
   const sops=[...sopsFiltrados].map((s,i)=>({...s,_origIdx:SOPORTES.indexOf(SOPORTES.find(x=>x._id===s._id))??i})).sort((a,b)=>{
     // Ordenar solo por fecha de última modificación — más reciente primero
     const aTs = a.ultima_mod||a.fecha_apertura||"";
