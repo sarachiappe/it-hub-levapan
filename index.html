@@ -581,6 +581,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
       </div>
       <!-- Productividad -->
       <button class="view-btn" id="btnProductividad">🎯 Productividad</button>
+      <button class="view-btn" id="btnActividad">⚡ Actividad</button>
     </div>
     <span class="result-count" id="resultCount"></span>
   </div>
@@ -617,6 +618,20 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
     <div id="viewTareas" style="display:none"></div>
     <div id="viewProyectos" style="display:none"></div>
     <div id="viewInfra" style="display:none"></div>
+    <div id="viewActividad" style="display:none">
+      <div style="max-width:680px;margin:24px auto;padding:0 16px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <div style="flex:1;">
+            <h2 style="font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;color:var(--navy);margin:0;">Actividad reciente</h2>
+            <p style="font-family:'DM Sans',sans-serif;font-size:12px;color:var(--gray-dk);margin:4px 0 0;">Últimas acciones registradas en el IT HUB</p>
+          </div>
+          <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:6px 14px;color:var(--navy);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
+        </div>
+        <div id="feed-container" style="background:white;border-radius:10px;border:1px solid var(--border);padding:0 16px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+          <div style="color:var(--gray-dk);font-size:13px;padding:24px;text-align:center;">Cargando...</div>
+        </div>
+      </div>
+    </div>
   </div>
 </main>
 </div>
@@ -1343,6 +1358,74 @@ const FS_COL = "ithub";
 let _cache = { demanda:{overrides:{},custom:[]}, tareas:[], diario:[], macro:[], ef:{}, pmo:{}, macro_data:{}, infra:null };
 let _firestoreReady = false;
 
+// ══════════════════════════════════════════════
+// FEED DE ACTIVIDAD
+// ══════════════════════════════════════════════
+const MAX_ACTIVIDAD = 50;
+
+async function registrarActividad(tipo, descripcion){
+  if(!_firestoreReady) return;
+  try {
+    const ref = db.collection(FS_COL).doc("actividad");
+    const snap = await ref.get();
+    const eventos = snap.exists ? (snap.data().eventos||[]) : [];
+    const usuario = auth.currentUser ? auth.currentUser.email.split("@")[0] : "sistema";
+    const nuevo = { id:Date.now(), tipo, descripcion, usuario, fecha:new Date().toISOString() };
+    await ref.set({ eventos: [nuevo,...eventos].slice(0,MAX_ACTIVIDAD) });
+  } catch(e){ console.warn("[Actividad] Error:", e); }
+}
+
+function _tipoIcono(tipo){
+  const m = {
+    iniciativa_nueva:    {icon:"✦",color:"#7E84F2"},
+    iniciativa_editada:  {icon:"✎",color:"#10C9E4"},
+    iniciativa_eliminada:{icon:"✕",color:"#A32D2D"},
+    proyecto_avance:     {icon:"▲",color:"#5EFC70"},
+    proyecto_estado:     {icon:"◎",color:"#BA7517"},
+    tarea_nueva:         {icon:"☑",color:"#10C9E4"},
+    importacion:         {icon:"⬇",color:"#888"},
+  };
+  return m[tipo]||{icon:"•",color:"#888"};
+}
+
+function _fmtFechaFeed(iso){
+  const d=new Date(iso), ahora=new Date();
+  const diff=Math.floor((ahora-d)/1000);
+  if(diff<60) return "hace un momento";
+  if(diff<3600) return `hace ${Math.floor(diff/60)} min`;
+  if(diff<86400) return `hace ${Math.floor(diff/3600)}h`;
+  const dias=Math.floor(diff/86400);
+  if(dias===1) return "ayer";
+  if(dias<7) return `hace ${dias} días`;
+  return d.toLocaleDateString("es-CO",{day:"numeric",month:"short"});
+}
+
+async function renderFeed(){
+  const cont=document.getElementById("feed-container");
+  if(!cont) return;
+  cont.innerHTML=`<div style="color:rgba(20,26,44,0.4);font-size:13px;padding:24px;text-align:center;">Cargando actividad...</div>`;
+  try {
+    const snap=await db.collection(FS_COL).doc("actividad").get();
+    const eventos=snap.exists?(snap.data().eventos||[]):[];
+    if(eventos.length===0){
+      cont.innerHTML=`<div style="color:rgba(20,26,44,0.4);font-size:13px;padding:24px;text-align:center;">No hay actividad registrada aún.<br><span style="font-size:11px;">Los eventos aparecerán aquí a medida que el equipo use el IT HUB.</span></div>`;
+      return;
+    }
+    cont.innerHTML=eventos.map(ev=>{
+      const {icon,color}=_tipoIcono(ev.tipo);
+      return `<div style="display:flex;gap:12px;padding:12px 0;border-bottom:0.5px solid var(--border);">
+        <div style="width:30px;height:30px;border-radius:50%;background:${color}22;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:${color};">${icon}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;color:var(--navy);line-height:1.4;">${ev.descripcion}</div>
+          <div style="font-size:11px;color:var(--gray-dk);margin-top:3px;">${ev.usuario} · ${_fmtFechaFeed(ev.fecha)}</div>
+        </div>
+      </div>`;
+    }).join("");
+  } catch(e){
+    cont.innerHTML=`<div style="color:rgba(20,26,44,0.4);font-size:13px;padding:24px;text-align:center;">No se pudo cargar la actividad.</div>`;
+  }
+}
+
 function fsSet(docId, data){
   if(!_firestoreReady) return;
   db.collection(FS_COL).doc(docId).set(data).catch(e=>console.warn("[Firestore] Error:",docId,e));
@@ -1864,16 +1947,17 @@ function setView(v){
   }
 
   view=v;
-  ["table","macro","matrix","ejecutivo","tareas","proyectos","productividad","infra"].forEach(k=>{
+  ["table","macro","matrix","ejecutivo","tareas","proyectos","productividad","infra","actividad"].forEach(k=>{
     const el=document.getElementById("view"+k.charAt(0).toUpperCase()+k.slice(1));
     if(el) el.style.display=k===v?"block":"none";
   });
+  if(v==="actividad") renderFeed();
 
   // Main nav button active states
   const mainMap = {
     table:"btnTable", matrix:"btnTable", tareas:"btnTable",
     macro:"btnMacro", ejecutivo:"btnEjecutivo",
-    proyectos:"btnProyectos", productividad:"btnProductividad", infra:"btnInfra"
+    proyectos:"btnProyectos", productividad:"btnProductividad", actividad:"btnActividad", infra:"btnInfra"
   };
   ["btnTable","btnMacro","btnEjecutivo","btnProyectos","btnProductividad","btnInfra"].forEach(id=>{
     const el=document.getElementById(id);
@@ -1888,6 +1972,7 @@ document.getElementById("btnEjecutivo").onclick=()=>setView("ejecutivo");
 document.getElementById("btnProyectos").onclick=()=>setView("proyectos");
 document.getElementById("btnProductividad").onclick=()=>setView("productividad");
 document.getElementById("btnInfra").onclick=()=>setView("infra");
+document.getElementById("btnActividad").onclick=()=>setView("actividad");
 function setKpiFilter(v){
   filters.tipo=v;
   document.querySelectorAll('.filter-btn[data-filter="tipo"]').forEach(b=>b.classList.remove("active"));
@@ -2005,6 +2090,7 @@ function saveEdit(){
   d.brief=document.getElementById("e-brief").value.trim();
   update();
   saveToStorage();
+  registrarActividad("iniciativa_editada",`Iniciativa editada: "${d.req}" (${d.area||"sin área"})`);
   openDetail(currentDetailIdx);
 }
 
@@ -2043,8 +2129,10 @@ function guardarFinanciero(){
 function eliminarIniciativa(){
   const d=DATOS[currentDetailIdx];if(!d)return;
   if(!window.__confirmEliminar){ window.__confirmEliminar=true; const b=event.target; const orig=b.innerHTML; b.innerHTML='¿Confirmar?'; b.style.background='#A32D2D'; setTimeout(()=>{b.innerHTML=orig;b.style.background='';window.__confirmEliminar=false;},3000); return; } window.__confirmEliminar=false;
+  const _dNom=d.req;
   DATOS.splice(currentDetailIdx,1);
   saveToStorage();
+  registrarActividad("iniciativa_eliminada",`Iniciativa eliminada: "${_dNom}"`);
   closeDetailPanel();
   update();
 }
@@ -2252,6 +2340,7 @@ function confirmarIniciativa(){
   aiResult._id = Date.now();
   DATOS.push(aiResult);
   saveToStorage();
+  registrarActividad("iniciativa_nueva",`Nueva iniciativa: "${aiResult.req}" (${aiResult.area||"sin área"})`);
   document.getElementById("successMsg").textContent=`"${aiResult.req}" fue agregada al inventario como ${aiResult.cuad==="E"?"proyecto estratégico":aiResult.cuad==="QW"?"quick win":aiResult.cuad==="H"?"proyecto habilitador":"iniciativa para evaluar"}.`;
   goToStep(4);
   // Remove _new flag after animation
@@ -2344,6 +2433,7 @@ function importarDatos(event){
         if(raw.macro)      saveMacro(raw.macro);
         if(raw.macroData)  saveMacroData(raw.macroData);
         if(raw.infra)      saveInfra(raw.infra);
+        registrarActividad("importacion",`Datos importados desde respaldo (${new Date().toLocaleDateString("es-CO")})`);
         update();
         alert('Respaldo completo restaurado correctamente.');
 
@@ -2691,6 +2781,7 @@ function agregarTareaDesdePanel(){
   const todas = loadTareas();
   todas.unshift(t);
   saveTareas(todas);
+  registrarActividad("tarea_nueva",`Nueva tarea en "${d.req}": ${texto.slice(0,60)}`);
   document.getElementById("d-nueva-tarea").value="";
   document.getElementById("d-tarea-tipo").value="";
   document.getElementById("d-tarea-responsable").value="";
@@ -3259,7 +3350,15 @@ const HITOS_BASE = [
 function loadPMO(){return _cache.pmo;}
 function savePMO(d){_cache.pmo=d;fsSet("pmo",{pmo:d});}
 function getPMO(id){ const key=String(id); return (loadPMO())[key] || {etapas:{}, hitos:{}, equipo:[]}; }
-function setPMO(id, data){ const all=loadPMO(); all[String(id)]=data; savePMO(all); }
+function setPMO(id, data){
+  const all=loadPMO(), prev=all[String(id)]||{};
+  all[String(id)]=data; savePMO(all);
+  const d=DATOS.find(x=>x._id==id);
+  if(d && data.pct!==undefined && data.pct!==prev.pct)
+    registrarActividad("proyecto_avance",`Avance: "${d.req}" → ${data.pct}%`);
+  if(d && data.estado && data.estado!==prev.estado)
+    registrarActividad("proyecto_estado",`Estado: "${d.req}" → ${data.estado}`);
+}
 
 let pmoSelectedId = null;
 let pmoFiltro = ""; // filtro interno de la tabla de proyectos

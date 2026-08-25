@@ -659,6 +659,19 @@ function mfsSet(docId, data){
     .catch(e=>console.warn("[Firestore Maestro] Error:",docId,e));
 }
 
+// Comparte el mismo documento "actividad" en Firestore que el IT HUB principal
+async function registrarActividad(tipo, descripcion){
+  if(!_mReady) return;
+  try {
+    const ref = db.collection(FS_COL).doc("actividad");
+    const snap = await ref.get();
+    const eventos = snap.exists ? (snap.data().eventos||[]) : [];
+    const usuario = auth.currentUser ? auth.currentUser.email.split("@")[0] : "sistema";
+    const nuevo = { id:Date.now(), tipo, descripcion, usuario, fecha:new Date().toISOString() };
+    await ref.set({ eventos: [nuevo,...eventos].slice(0,50) });
+  } catch(e){ console.warn("[Actividad Maestro] Error:", e); }
+}
+
 async function initMaestroFirestore(){
   const loading=document.getElementById("fs-loading");
   if(loading) loading.style.display="flex";
@@ -830,6 +843,7 @@ function sincronizarEstadoDesdePMO(idIni){
   if(prog===100 && d.estado !== "Finalizado"){
     d.estado = "Finalizado";
     saveToStorage();
+    registrarActividad("proyecto_finalizado", `Proyecto finalizado: "${d.req}"`);
     update();
   }
 
@@ -1490,6 +1504,7 @@ function guardarNuevoProyecto(){
   };
   DATOS.push(nuevo);
   _save();
+  registrarActividad("proyecto_nuevo_maestro", `Nuevo proyecto IA Aplicada: "${nombre}" (${ing||"sin asignar"})`);
   document.getElementById('crear-proy-ov').remove();
   switchSection('proyectos');
   update();
@@ -2553,6 +2568,8 @@ function guardarEtapa(idIni, idEtapa){
   setPMO(idIni, pmo);
   sincronizarEstadoDesdePMO._desdeGuardar = true;
   sincronizarEstadoDesdePMO(idIni);
+  const _d=DATOS.find(x=>x._id===idIni);
+  if(_d) registrarActividad("etapa_actualizada", `Etapa actualizada: "${_d.req}" → ${pct}% completado`);
   cerrarModalEtapa();
   refrescarPanelPMO(idIni);
   if(activeSection==="proyectos") update();
@@ -2776,6 +2793,8 @@ function guardarNotaEtapa(idIni, idEtapa){
     fecha: new Date().toLocaleString('es-CO',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
   });
   setPMO(idIni, pmo);
+  const _dNota=DATOS.find(x=>x._id===idIni);
+  if(_dNota) registrarActividad("nota_etapa", `Nota registrada en "${_dNota.req}": ${texto.slice(0,60)}`);
   document.getElementById("nota-etapa-input").value="";
   // Refresh list in modal
   const etapa = ETAPAS_BASE.find(e=>e.id===idEtapa);
@@ -3335,8 +3354,11 @@ function renderSoporte(){
 function saveSop(idx){
   const p=document.getElementById("s-p")?.value.trim(); if(!p){document.getElementById("s-p").style.borderColor="#A32D2D";return;}
   const s={_id:idx===-1?Date.now():SOPORTES[idx]._id,proyecto:p,tarea:document.getElementById("s-t")?.value.trim()||"",desc:"",horas_est:parseFloat(document.getElementById("s-he")?.value)||0,horas_real:parseFloat(document.getElementById("s-hr")?.value)||0,prioridad:document.getElementById("s-pr")?.value,estado_sop:document.getElementById("s-st")?.value,fecha_apertura:document.getElementById("s-fa")?.value||"",notas:document.getElementById("s-no")?.value.trim()||""};
-  if(idx===-1)SOPORTES.push(s); else SOPORTES[idx]=s;
-  _saveSop(); document.getElementById("sop-ov").remove(); renderSoporte();
+  const esNuevo = idx===-1;
+  if(esNuevo) SOPORTES.push(s); else SOPORTES[idx]=s;
+  _saveSop();
+  if(esNuevo) registrarActividad("soporte_nuevo", `Nuevo caso de soporte: "${s.proyecto}" — ${s.tarea||"sin tarea"}`);
+  document.getElementById("sop-ov").remove(); renderSoporte();
 }
 function delSop(idx){
   SOPORTES.splice(idx,1);
