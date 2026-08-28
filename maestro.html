@@ -2772,11 +2772,17 @@ function renderBriefTab(d){
         <textarea id="proj-desc-${d._id}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);resize:none;min-height:72px;line-height:1.6;outline:none;background:var(--off);box-sizing:border-box;" placeholder="Escribe una descripción o resumen del proyecto..." oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onfocus="this.style.borderColor='var(--teal)';this.style.background='white'" onblur="this.style.borderColor='var(--border)';this.style.background='var(--off)';guardarDescProy(${d._id},this.value)">${d.desc||""}</textarea>
       </div>
     </div>
+    ${d.escalado_desde_demanda
+      ? `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:6px;margin-bottom:4px;">
+          <span style="font-size:13px;">↗</span>
+          <span style="font-size:12px;color:#4338CA;font-weight:500;">Proyecto escalado desde IT HUB Levapan</span>
+         </div>`
+      : ''
+    }
     ${d.brief
       ? `<div class="review-brief-box" style="font-size:12.5px;line-height:1.8;white-space:pre-wrap;">${d.brief}</div>`
-      : `<div style="font-size:13px;color:var(--gray);font-style:italic;padding:12px 0;">Esta iniciativa no tiene brief generado todavía. Ábrela desde la vista de demanda para generarlo.</div>`
+      : `<div style="font-size:13px;color:var(--gray);font-style:italic;padding:12px 0;">Sin brief generado todavía.</div>`
     }
-    <button onclick="openDetail(${DATOS.indexOf(d)})" style="align-self:flex-start;padding:7px 14px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);cursor:pointer;">Abrir panel completo →</button>
   </div>`;
 }
 

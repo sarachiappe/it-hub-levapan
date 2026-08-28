@@ -709,6 +709,12 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
           <div class="review-brief-box" id="d-brief" style="font-size:12.5px;line-height:1.8;"></div>
         </div>
         <div style="padding-top:8px;border-top:1px solid var(--border);">
+          <div style="margin-bottom:10px;">
+            <div class="filter-group-label" style="color:var(--gray);margin-bottom:8px;">Escalar a tercero</div>
+            <div id="d-escalar"></div>
+          </div>
+        </div>
+        <div style="padding-top:8px;border-top:1px solid var(--border);">
           <button onclick="eliminarIniciativa()" style="display:flex;align-items:center;gap:6px;width:100%;padding:9px 14px;background:transparent;border:1px solid #FCEBEB;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:#A32D2D;cursor:pointer;transition:all .15s;justify-content:center;" onmouseover="this.style.background='#FCEBEB'" onmouseout="this.style.background='transparent'">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             Eliminar iniciativa
@@ -1339,7 +1345,7 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const FS_COL = "ithub";
 
-let _cache = { demanda:{overrides:{},custom:[]}, tareas:[], diario:[], macro:[], ef:{}, pmo:{}, macro_data:{}, infra:null };
+let _cache = { demanda:{overrides:{},custom:[]}, tareas:[], diario:[], macro:[], ef:{}, pmo:{}, macro_data:{}, infra:null, terceros:['IA Aplicada'] };
 let _firestoreReady = false;
 
 // ══════════════════════════════════════════════
@@ -1347,7 +1353,141 @@ let _firestoreReady = false;
 // ══════════════════════════════════════════════
 const MAX_ACTIVIDAD = 50;
 
-async function registrarActividad(tipo, descripcion){
+async // ══════════════════════════════════════════════
+// ELIMINAR PROYECTO (desde panel PMO)
+// ══════════════════════════════════════════════
+function eliminarProyecto(idIni){
+  const btnId = 'btn-del-proy-'+idIni;
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  if(!btn._confirmando){
+    btn._confirmando = true;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '¿Confirmar eliminación?';
+    btn.style.background = 'rgba(163,45,45,.6)';
+    btn.style.border = '1px solid rgba(163,45,45,.8)';
+    setTimeout(()=>{
+      if(btn._confirmando){
+        btn._confirmando=false;
+        btn.innerHTML=orig;
+        btn.style.background='rgba(163,45,45,.25)';
+        btn.style.border='1px solid rgba(163,45,45,.4)';
+      }
+    }, 3500);
+    return;
+  }
+  // Confirmar: ejecutar eliminación
+  const idx = DATOS.findIndex(x=>x._id===idIni);
+  if(idx < 0) return;
+  const nombre = DATOS[idx].req;
+  DATOS.splice(idx,1);
+  saveToStorage();
+  // Limpiar PMO
+  const allPMO = loadPMO();
+  delete allPMO[String(idIni)];
+  savePMO(allPMO);
+  registrarActividad('iniciativa_eliminada', `Proyecto eliminado: "${nombre}"`);
+  cerrarPanelProyecto();
+  update();
+}
+
+// ══════════════════════════════════════════════
+// ESCALAR A TERCERO
+// ══════════════════════════════════════════════
+function renderEscalarSection(d){
+  const el = document.getElementById('d-escalar');
+  if(!el) return;
+  const terceros = _cache.terceros || ['IA Aplicada'];
+
+  if(d.escalado_a){
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:6px;padding:5px 12px;font-size:12px;color:#4338CA;font-weight:500;">↗ Escalado a ${d.escalado_a}</span>
+        <button onclick="quitarEscalamiento()" style="font-size:11px;color:var(--gray);background:none;border:none;cursor:pointer;text-decoration:underline;">Quitar</button>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="display:flex;gap:6px;align-items:center;">
+      <select id="sel-tercero" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);background:white;outline:none;">
+        <option value="">-- Selecciona tercero --</option>
+        ${terceros.map(t=>`<option value="${t}">${t}</option>`).join('')}
+      </select>
+      <button onclick="agregarNuevoTercero()" title="Agregar nuevo tercero" style="padding:7px 11px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-size:14px;cursor:pointer;color:var(--navy);">+</button>
+      <button onclick="escalarATercero()" style="padding:7px 14px;background:#4338CA;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Escalar</button>
+    </div>`;
+}
+
+function agregarNuevoTercero(){
+  const nombre = prompt('Nombre del tercero:');
+  if(!nombre || !nombre.trim()) return;
+  const n = nombre.trim();
+  if(_cache.terceros.includes(n)){ alert('Ya existe ese tercero.'); return; }
+  _cache.terceros.push(n);
+  fsSet('terceros', {lista: _cache.terceros});
+  const d = DATOS[currentDetailIdx];
+  if(d) renderEscalarSection(d);
+}
+
+async function escalarATercero(){
+  const sel = document.getElementById('sel-tercero');
+  if(!sel || !sel.value){ alert('Selecciona un tercero.'); return; }
+  const tercero = sel.value;
+  const d = DATOS[currentDetailIdx];
+  if(!d) return;
+
+  // Verificar si ya existe escalamiento previo en Maestro
+  if(tercero === 'IA Aplicada'){
+    try {
+      const snap = await db.collection(FS_COL).doc('maestro_datos').get();
+      const datos = snap.exists ? (snap.data().datos||[]) : [];
+      const existe = datos.find(p=>p.escalado_desde_demanda===d._id);
+      if(existe){
+        alert(`Esta iniciativa ya fue escalada a IA Aplicada (proyecto: "${existe.req}").`);
+        return;
+      }
+      // Crear proyecto en Maestro
+      const nuevoProy = {
+        _id:                  Date.now(),
+        req:                  d.req,
+        desc:                 d.desc||'',
+        area:                 d.area||'TI',
+        cuad:                 d.cuad||'E',
+        tipo:                 'Proyecto IA Aplicada',
+        estado:               'En Levantamiento',
+        solicitante:          '',
+        ing:                  [],
+        creado:               new Date().toISOString(),
+        brief:                d.brief||d.desc||'',
+        escalado_desde_demanda: d._id
+      };
+      datos.push(nuevoProy);
+      const ingdata = snap.exists ? (snap.data().ingdata||{}) : {};
+      await db.collection(FS_COL).doc('maestro_datos').set({datos, ingdata});
+    } catch(e){
+      console.warn('Error escalando a IA Aplicada:', e);
+      alert('Error al conectar con el Maestro. Intenta de nuevo.');
+      return;
+    }
+  }
+
+  // Guardar escalamiento en la iniciativa
+  d.escalado_a = tercero;
+  saveToStorage();
+  registrarActividad('escalamiento', `Iniciativa escalada a ${tercero}: "${d.req}"`);
+  renderEscalarSection(d);
+}
+
+function quitarEscalamiento(){
+  const d = DATOS[currentDetailIdx];
+  if(!d) return;
+  delete d.escalado_a;
+  saveToStorage();
+  renderEscalarSection(d);
+}
+
+function registrarActividad(tipo, descripcion){
   if(!_firestoreReady) return;
   try {
     const ref = db.collection(FS_COL).doc("actividad");
@@ -1368,6 +1508,7 @@ function _tipoIcono(tipo){
     proyecto_estado:     {icon:"◎",color:"#BA7517"},
     tarea_nueva:         {icon:"☑",color:"#10C9E4"},
     importacion:         {icon:"⬇",color:"#888"},
+    escalamiento:        {icon:"↗",color:"#4338CA"},
   };
   return m[tipo]||{icon:"•",color:"#888"};
 }
@@ -1430,6 +1571,7 @@ async function initFirestore(){
       if(id==="pmo")        _cache.pmo        =d.pmo||{};
       if(id==="macro_data") _cache.macro_data =d.data||{};
       if(id==="infra")      _cache.infra      =d.items||null;
+      if(id==="terceros")   _cache.terceros   =d.lista||['IA Aplicada'];
     });
     console.log("[Firestore] Datos cargados correctamente.");
   } catch(e){
@@ -1441,6 +1583,7 @@ async function initFirestore(){
     try{_cache.ef         =JSON.parse(localStorage.getItem("levapan_ef_v1")||"{}");}catch(_){}
     try{_cache.pmo        =JSON.parse(localStorage.getItem("levapan_pmo_v1")||"{}");}catch(_){}
     try{_cache.macro_data =JSON.parse(localStorage.getItem("levapan_macro_data_v1")||"{}");}catch(_){}
+    try{_cache.terceros   =JSON.parse(localStorage.getItem("levapan_terceros_v1")||'["IA Aplicada"]');}catch(_){}
     try{_cache.infra      =JSON.parse(localStorage.getItem("levapan_infra_v1")||"null");}catch(_){}
   } finally {
     _firestoreReady=true;
@@ -2002,6 +2145,7 @@ function openDetail(idx){
   else document.getElementById("d-desc-wrap").style.display="none";
   if(d.brief){document.getElementById("d-brief").textContent=d.brief;document.getElementById("d-brief-wrap").style.display="block";}
   else document.getElementById("d-brief-wrap").style.display="none";
+  renderEscalarSection(d);
   document.getElementById("d-procesos-badge").innerHTML=procesosInteractivo(d.procesos, idx);
   document.getElementById("d-inversion-input").value=d.inversion||"";
   document.getElementById("d-roi-input").value=d.roi||"";
@@ -2584,6 +2728,19 @@ function renderEjecutivo(){
       </div>
     </div>
 
+  <!-- BLOQUE ACTIVIDAD RECIENTE -->
+  <div style="background:white;border-radius:10px;border:1px solid var(--border);padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;">Actividad reciente</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Últimas acciones en el IT HUB y Maestro IA Aplicada</div>
+      </div>
+      <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--navy);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
+    </div>
+    <div id="feed-container" style="max-height:320px;overflow-y:auto;padding-right:4px;">
+      <div style="color:var(--gray);font-size:13px;padding:16px 0;text-align:center;">Cargando actividad...</div>
+    </div>
+
     <!-- BLOQUE 2: DEMANDA -->
     <div style="background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px 20px;">
       <div class="exec-section-title" style="margin-bottom:12px;">2 · Demanda tecnológica</div>
@@ -2651,21 +2808,7 @@ function renderEjecutivo(){
             <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:#A32D2D;flex-shrink:0;">${fmtNum(x.costo)}</div>
           </div>`).join('') + '</div>';
       })()}
-    </div>
-
-  <!-- BLOQUE ACTIVIDAD RECIENTE -->
-  <div style="background:white;border-radius:10px;border:1px solid var(--border);padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <div>
-        <div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;">Actividad reciente</div>
-        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Últimas acciones en el IT HUB y Maestro IA Aplicada</div>
-      </div>
-      <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--navy);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
-    </div>
-    <div id="feed-container" style="max-height:320px;overflow-y:auto;padding-right:4px;">
-      <div style="color:var(--gray);font-size:13px;padding:16px 0;text-align:center;">Cargando actividad...</div>
-    </div>
-  </div>
+    </div>  </div>
 
   </div>`;
 }
@@ -3645,6 +3788,7 @@ function renderPMODetail(d, pmo){
                 </span>
               </span>`
           }
+          <button id="btn-del-proy-${d._id}" onclick="eliminarProyecto(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.25);border:1px solid rgba(163,45,45,.4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#ffb3b3;cursor:pointer;white-space:nowrap;transition:all .2s;">🗑 Eliminar proyecto</button>
           <button onclick="openDetail(${DATOS.indexOf(d)})" style="padding:6px 12px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">Ver iniciativa →</button>
           <button class="pmo-panel-close" onclick="cerrarPanelProyecto()">✕</button>
         </div>
