@@ -709,7 +709,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
           <div class="review-brief-box" id="d-brief" style="font-size:12.5px;line-height:1.8;"></div>
         </div>
         <div style="padding-top:8px;border-top:1px solid var(--border);">
-          <div style="margin-bottom:10px;">
+          <div style="margin-bottom:12px;">
             <div class="filter-group-label" style="color:var(--gray);margin-bottom:8px;">Escalar a tercero</div>
             <div id="d-escalar"></div>
           </div>
@@ -1353,7 +1353,7 @@ let _firestoreReady = false;
 // ══════════════════════════════════════════════
 const MAX_ACTIVIDAD = 50;
 
-async // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
 // ELIMINAR PROYECTO (desde panel PMO)
 // ══════════════════════════════════════════════
 function eliminarProyecto(idIni){
@@ -1376,17 +1376,15 @@ function eliminarProyecto(idIni){
     }, 3500);
     return;
   }
-  // Confirmar: ejecutar eliminación
   const idx = DATOS.findIndex(x=>x._id===idIni);
   if(idx < 0) return;
   const nombre = DATOS[idx].req;
   DATOS.splice(idx,1);
   saveToStorage();
-  // Limpiar PMO
   const allPMO = loadPMO();
   delete allPMO[String(idIni)];
   savePMO(allPMO);
-  registrarActividad('iniciativa_eliminada', `Proyecto eliminado: "${nombre}"`);
+  registrarActividad('iniciativa_eliminada', 'Proyecto eliminado: "'+nombre+'"');
   cerrarPanelProyecto();
   update();
 }
@@ -1398,32 +1396,29 @@ function renderEscalarSection(d){
   const el = document.getElementById('d-escalar');
   if(!el) return;
   const terceros = _cache.terceros || ['IA Aplicada'];
-
   if(d.escalado_a){
-    el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:6px;padding:5px 12px;font-size:12px;color:#4338CA;font-weight:500;">↗ Escalado a ${d.escalado_a}</span>
-        <button onclick="quitarEscalamiento()" style="font-size:11px;color:var(--gray);background:none;border:none;cursor:pointer;text-decoration:underline;">Quitar</button>
-      </div>`;
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      +'<span style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:6px;padding:5px 12px;font-size:12px;color:#4338CA;font-weight:500;">&#8599; Escalado a '+d.escalado_a+'</span>'
+      +'<button onclick="quitarEscalamiento()" style="font-size:11px;color:var(--gray);background:none;border:none;cursor:pointer;text-decoration:underline;">Quitar</button>'
+      +'</div>';
     return;
   }
-
-  el.innerHTML = `
-    <div style="display:flex;gap:6px;align-items:center;">
-      <select id="sel-tercero" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);background:white;outline:none;">
-        <option value="">-- Selecciona tercero --</option>
-        ${terceros.map(t=>`<option value="${t}">${t}</option>`).join('')}
-      </select>
-      <button onclick="agregarNuevoTercero()" title="Agregar nuevo tercero" style="padding:7px 11px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-size:14px;cursor:pointer;color:var(--navy);">+</button>
-      <button onclick="escalarATercero()" style="padding:7px 14px;background:#4338CA;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Escalar</button>
-    </div>`;
+  const opts = terceros.map(function(t){ return '<option value="'+t+'">'+t+'</option>'; }).join('');
+  el.innerHTML = '<div style="display:flex;gap:6px;align-items:center;">'
+    +'<select id="sel-tercero" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);background:white;outline:none;">'
+    +'<option value="">-- Selecciona tercero --</option>'+opts
+    +'</select>'
+    +'<button onclick="agregarNuevoTercero()" title="Agregar nuevo tercero" style="padding:7px 11px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-size:14px;cursor:pointer;color:var(--navy);">+</button>'
+    +'<button onclick="escalarATercero()" style="padding:7px 14px;background:#4338CA;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Escalar</button>'
+    +'</div>';
 }
 
 function agregarNuevoTercero(){
-  const nombre = prompt('Nombre del tercero:');
+  const nombre = window.prompt('Nombre del nuevo tercero:');
   if(!nombre || !nombre.trim()) return;
   const n = nombre.trim();
-  if(_cache.terceros.includes(n)){ alert('Ya existe ese tercero.'); return; }
+  if((_cache.terceros||[]).includes(n)){ window.alert('Ya existe ese tercero.'); return; }
+  _cache.terceros = _cache.terceros || ['IA Aplicada'];
   _cache.terceros.push(n);
   fsSet('terceros', {lista: _cache.terceros});
   const d = DATOS[currentDetailIdx];
@@ -1432,50 +1427,47 @@ function agregarNuevoTercero(){
 
 async function escalarATercero(){
   const sel = document.getElementById('sel-tercero');
-  if(!sel || !sel.value){ alert('Selecciona un tercero.'); return; }
+  if(!sel || !sel.value){ window.alert('Selecciona un tercero primero.'); return; }
   const tercero = sel.value;
   const d = DATOS[currentDetailIdx];
   if(!d) return;
 
-  // Verificar si ya existe escalamiento previo en Maestro
   if(tercero === 'IA Aplicada'){
     try {
       const snap = await db.collection(FS_COL).doc('maestro_datos').get();
-      const datos = snap.exists ? (snap.data().datos||[]) : [];
-      const existe = datos.find(p=>p.escalado_desde_demanda===d._id);
+      const datosMaestro = snap.exists ? (snap.data().datos||[]) : [];
+      const existe = datosMaestro.find(function(p){ return p.escalado_desde_demanda===d._id; });
       if(existe){
-        alert(`Esta iniciativa ya fue escalada a IA Aplicada (proyecto: "${existe.req}").`);
+        window.alert('Esta iniciativa ya fue escalada a IA Aplicada (proyecto: "'+existe.req+'").');
         return;
       }
-      // Crear proyecto en Maestro
       const nuevoProy = {
-        _id:                  Date.now(),
-        req:                  d.req,
-        desc:                 d.desc||'',
-        area:                 d.area||'TI',
-        cuad:                 d.cuad||'E',
-        tipo:                 'Proyecto IA Aplicada',
-        estado:               'En Levantamiento',
-        solicitante:          '',
-        ing:                  [],
-        creado:               new Date().toISOString(),
-        brief:                d.brief||d.desc||'',
+        _id: Date.now(),
+        req: d.req,
+        desc: d.desc||'',
+        area: d.area||'TI',
+        cuad: d.cuad||'E',
+        tipo: 'Proyecto IA Aplicada',
+        estado: 'En Levantamiento',
+        solicitante: '',
+        ing: [],
+        creado: new Date().toISOString(),
+        brief: d.brief||d.desc||'',
         escalado_desde_demanda: d._id
       };
-      datos.push(nuevoProy);
+      datosMaestro.push(nuevoProy);
       const ingdata = snap.exists ? (snap.data().ingdata||{}) : {};
-      await db.collection(FS_COL).doc('maestro_datos').set({datos, ingdata});
+      await db.collection(FS_COL).doc('maestro_datos').set({datos: datosMaestro, ingdata: ingdata});
     } catch(e){
       console.warn('Error escalando a IA Aplicada:', e);
-      alert('Error al conectar con el Maestro. Intenta de nuevo.');
+      window.alert('Error al conectar con el Maestro. Intenta de nuevo.');
       return;
     }
   }
 
-  // Guardar escalamiento en la iniciativa
   d.escalado_a = tercero;
   saveToStorage();
-  registrarActividad('escalamiento', `Iniciativa escalada a ${tercero}: "${d.req}"`);
+  registrarActividad('escalamiento', 'Iniciativa escalada a '+tercero+': "'+d.req+'"');
   renderEscalarSection(d);
 }
 
@@ -1487,7 +1479,7 @@ function quitarEscalamiento(){
   renderEscalarSection(d);
 }
 
-function registrarActividad(tipo, descripcion){
+async function registrarActividad(tipo, descripcion){
   if(!_firestoreReady) return;
   try {
     const ref = db.collection(FS_COL).doc("actividad");
