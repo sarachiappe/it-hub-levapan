@@ -581,7 +581,6 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
       </div>
       <!-- Productividad -->
       <button class="view-btn" id="btnProductividad">🎯 Productividad</button>
-      <button class="view-btn" id="btnActividad">⚡ Actividad</button>
     </div>
     <span class="result-count" id="resultCount"></span>
   </div>
@@ -618,21 +617,6 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
     <div id="viewTareas" style="display:none"></div>
     <div id="viewProyectos" style="display:none"></div>
     <div id="viewInfra" style="display:none"></div>
-    <div id="viewActividad" style="display:none">
-      <div style="max-width:680px;margin:24px auto;padding:0 16px;">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-          <div style="flex:1;">
-            <h2 style="font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;color:var(--navy);margin:0;">Actividad reciente</h2>
-            <p style="font-family:'DM Sans',sans-serif;font-size:12px;color:var(--gray-dk);margin:4px 0 0;">Últimas acciones registradas en el IT HUB</p>
-          </div>
-          <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:6px 14px;color:var(--navy);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
-        </div>
-        <div id="feed-container" style="background:white;border-radius:10px;border:1px solid var(--border);padding:0 16px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
-          <div style="color:var(--gray-dk);font-size:13px;padding:24px;text-align:center;">Cargando...</div>
-        </div>
-      </div>
-    </div>
-  </div>
 </main>
 </div>
 
@@ -1903,7 +1887,7 @@ function update(){
     if(btn) btn.classList.toggle("active", view===v.toLowerCase());
   });
   if(view==="matrix") renderMatrix(data);
-  if(view==="ejecutivo") renderEjecutivo();
+  if(view==="ejecutivo") { renderEjecutivo(); _loadFeedEjecutivo(); }
   if(view==="tareas") renderTareasGlobal();
   if(view==="proyectos") renderProyectos();
 }
@@ -1947,17 +1931,16 @@ function setView(v){
   }
 
   view=v;
-  ["table","macro","matrix","ejecutivo","tareas","proyectos","productividad","infra","actividad"].forEach(k=>{
+  ["table","macro","matrix","ejecutivo","tareas","proyectos","productividad","infra"].forEach(k=>{
     const el=document.getElementById("view"+k.charAt(0).toUpperCase()+k.slice(1));
     if(el) el.style.display=k===v?"block":"none";
   });
-  if(v==="actividad") renderFeed();
 
   // Main nav button active states
   const mainMap = {
     table:"btnTable", matrix:"btnTable", tareas:"btnTable",
     macro:"btnMacro", ejecutivo:"btnEjecutivo",
-    proyectos:"btnProyectos", productividad:"btnProductividad", actividad:"btnActividad", infra:"btnInfra"
+    proyectos:"btnProyectos", productividad:"btnProductividad", infra:"btnInfra"
   };
   ["btnTable","btnMacro","btnEjecutivo","btnProyectos","btnProductividad","btnInfra"].forEach(id=>{
     const el=document.getElementById(id);
@@ -1972,7 +1955,6 @@ document.getElementById("btnEjecutivo").onclick=()=>setView("ejecutivo");
 document.getElementById("btnProyectos").onclick=()=>setView("proyectos");
 document.getElementById("btnProductividad").onclick=()=>setView("productividad");
 document.getElementById("btnInfra").onclick=()=>setView("infra");
-document.getElementById("btnActividad").onclick=()=>setView("actividad");
 function setKpiFilter(v){
   filters.tipo=v;
   document.querySelectorAll('.filter-btn[data-filter="tipo"]').forEach(b=>b.classList.remove("active"));
@@ -2671,8 +2653,25 @@ function renderEjecutivo(){
       })()}
     </div>
 
+  <!-- BLOQUE ACTIVIDAD RECIENTE -->
+  <div style="background:white;border-radius:10px;border:1px solid var(--border);padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;">Actividad reciente</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Últimas acciones en el IT HUB y Maestro IA Aplicada</div>
+      </div>
+      <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--navy);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
+    </div>
+    <div id="feed-container" style="max-height:320px;overflow-y:auto;padding-right:4px;">
+      <div style="color:var(--gray);font-size:13px;padding:16px 0;text-align:center;">Cargando actividad...</div>
+    </div>
+  </div>
+
   </div>`;
 }
+
+// Cargar feed de actividad async cuando se renderiza la vista ejecutiva
+async function _loadFeedEjecutivo(){ await renderFeed(); }
 
 // Helper para calcular estado PMO fuera del contexto de renderProyectos
 function calcEstadoPMOExec(d, pmo){
@@ -5885,6 +5884,7 @@ auth.onAuthStateChanged(async(user)=>{
     await initFirestore().catch(()=>{});
     DATOS=loadFromStorage();
     setView("ejecutivo");
+    _loadFeedEjecutivo();
   } else {
     loginScreen.style.display="flex";
     appContainer.style.display="none";

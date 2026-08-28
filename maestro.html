@@ -1536,7 +1536,7 @@ function abrirModalCrearSoporte(){
             <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Ingeniero asignado</div>
             <select id="ns-ing" class="ef-input">
               <option value="">-- Selecciona --</option>
-              <option>Anyi</option><option>Paul</option><option>Deivi</option><option>Rafael</option>
+              <option>Anyi</option><option>Paul</option><option>Deivi</option><option>Rafael</option><option>Sandra</option>
             </select>
           </div>
         </div>
@@ -1548,9 +1548,21 @@ function abrirModalCrearSoporte(){
           <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Descripci&oacute;n</div>
           <textarea id="ns-desc" class="ef-input" style="min-height:72px;resize:vertical;" placeholder="Describe brevemente el soporte a prestar..."></textarea>
         </div>
-        <div>
-          <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Tiempo estimado (horas)</div>
-          <input id="ns-horas" type="number" min="0" step="0.5" class="ef-input" placeholder="0" value="0">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Fecha de soporte</div>
+            <input id="ns-fecha-sop" type="date" class="ef-input">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Fecha de creación</div>
+            <input id="ns-fecha-ap" type="date" class="ef-input" value="${new Date().toISOString().slice(0,10)}">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Tiempo estimado (horas)</div>
+            <input id="ns-horas" type="number" min="0" step="0.5" class="ef-input" placeholder="0" value="0">
+          </div>
         </div>
       </div>
       <div style="padding:12px 28px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);flex-shrink:0;">
@@ -1573,6 +1585,9 @@ function guardarNuevoSoporte(){
   const desc    = document.getElementById('ns-desc')?.value.trim()||'';
   const horas   = parseFloat(document.getElementById('ns-horas')?.value)||0;
 
+  const fechaSop  = document.getElementById('ns-fecha-sop')?.value||'';
+  const fechaAp   = document.getElementById('ns-fecha-ap')?.value||new Date().toISOString().slice(0,10);
+
   const nuevo = {
     _id:           Date.now(),
     tarea:         nombre,
@@ -1583,6 +1598,8 @@ function guardarNuevoSoporte(){
     prioridad:     'Media',
     estado_sop:    'Sin iniciar',
     horas_est:     horas,
+    fecha_soporte: fechaSop,
+    fecha_apertura:fechaAp,
     horas_real:    0,
     notas_log:     [],
     fecha_apertura:new Date().toISOString().slice(0,10),
@@ -1707,14 +1724,54 @@ function modalSop(idx){
       </div>
       <div style="padding:16px 28px;display:flex;flex-direction:column;gap:12px;flex:1;">
 
+        <!-- Tarea -->
+        <div>
+          <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Título de la tarea *</div>
+          <input id="sop-tarea" type="text" class="ef-input" value="${s.tarea||s.proyecto||''}" placeholder="Título del soporte...">
+        </div>
+
+        <!-- Ingeniero / Tipo -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Ingeniero asignado</div>
+            <select id="sop-ing" class="ef-input">
+              ${['','Anyi','Paul','Deivi','Rafael','Sandra'].map(v=>`<option value="${v}"${s.ing===v?' selected':''}>${v||'-- Selecciona --'}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Tipo</div>
+            <select id="sop-tipo" class="ef-input">
+              ${['Mejora','Falla','Otro'].map(v=>`<option${(s.tipo_sop||'Otro')===v?' selected':''}>${v}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- Proyecto -->
+        <div>
+          <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Proyecto / Sistema</div>
+          <input id="sop-proy" type="text" class="ef-input" value="${s.proyecto||''}" placeholder="Ej: Tablero Gastos, App PortalBI...">
+        </div>
+
         <!-- Descripción -->
         <div>
           <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Descripción</div>
           <textarea id="sop-desc" class="ef-input" style="min-height:56px;resize:vertical;" placeholder="Describe brevemente el contexto o detalle del soporte...">${s.desc||""}</textarea>
         </div>
 
-        <!-- Prioridad / Estado / Apertura -->
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <!-- Fecha soporte / Fecha apertura -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Fecha de soporte</div>
+            <input id="sop-fs" type="date" class="ef-input" value="${s.fecha_soporte||''}">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Fecha de creación</div>
+            <input id="sop-ap" type="date" class="ef-input" value="${s.fecha_apertura||''}">
+          </div>
+        </div>
+
+        <!-- Prioridad / Estado -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
             <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Prioridad</div>
             <select id="sop-pr" class="ef-input">${PRIORIDADES_SOP.map(p=>`<option${s.prioridad===p?" selected":""}>${p}</option>`).join("")}</select>
@@ -1722,10 +1779,6 @@ function modalSop(idx){
           <div>
             <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Estado</div>
             <select id="sop-st" class="ef-input">${ESTADOS_SOP.map(e=>`<option${s.estado_sop===e?" selected":""}>${e}</option>`).join("")}</select>
-          </div>
-          <div>
-            <div style="font-size:11px;color:var(--gray);font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Apertura</div>
-            <input id="sop-ap" type="date" class="ef-input" value="${s.fecha_apertura||''}">
           </div>
         </div>
 
@@ -1764,11 +1817,16 @@ function modalSop(idx){
   document.body.insertAdjacentHTML('beforeend',html);
 }
 function saveSopMaestro(idx){
+  SOPORTES[idx].tarea         = document.getElementById("sop-tarea")?.value.trim()||SOPORTES[idx].tarea||"";
+  SOPORTES[idx].ing           = document.getElementById("sop-ing")?.value||"";
+  SOPORTES[idx].tipo_sop      = document.getElementById("sop-tipo")?.value||"Otro";
+  SOPORTES[idx].proyecto      = document.getElementById("sop-proy")?.value.trim()||SOPORTES[idx].proyecto||"";
   SOPORTES[idx].prioridad     = document.getElementById("sop-pr")?.value;
   SOPORTES[idx].estado_sop    = document.getElementById("sop-st")?.value;
   SOPORTES[idx].horas_est     = parseFloat(document.getElementById("sop-he")?.value)||0;
   SOPORTES[idx].horas_real    = parseFloat(document.getElementById("sop-hr")?.value)||0;
   SOPORTES[idx].desc          = document.getElementById("sop-desc")?.value.trim()||"";
+  SOPORTES[idx].fecha_soporte = document.getElementById("sop-fs")?.value||"";
   SOPORTES[idx].fecha_apertura= document.getElementById("sop-ap")?.value||"";
   SOPORTES[idx].ultima_mod    = _tsAhora();
   _save();
@@ -3347,8 +3405,8 @@ function renderSoporte(){
     return a._origIdx-b._origIdx;
   });
   const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${[["Sin iniciar",SOPORTES.filter(s=>s.estado_sop==="Sin iniciar").length,"#666"],["Abiertos",SOPORTES.filter(s=>s.estado_sop==="Abierto").length,"#BA7517"],["En proceso",SOPORTES.filter(s=>s.estado_sop==="En proceso").length,"#1D48CD"],["Detenidos",SOPORTES.filter(s=>s.estado_sop==="Detenido").length,"#A32D2D"],["Cerrados",SOPORTES.filter(s=>s.estado_sop==="Cerrado").length,"#1D9E75"],["Est.h",SOPORTES.reduce((a,s)=>a+(s.horas_est||0),0).toFixed(1)+"h","var(--navy)"],["Real h",SOPORTES.reduce((a,s)=>a+(s.horas_real||0),0).toFixed(1)+"h","var(--teal)"]].map(([l,v,c])=>`<div style="background:white;border:1px solid var(--border);border-radius:8px;padding:10px 14px"><div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:500;color:${c}">${v}</div><div style="font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em">${l}</div></div>`).join("")}</div>`;
-  const filas=sops.map((s)=>{const i=s._origIdx;return`<tr onclick="modalSop(${i})"><td style="padding:10px 8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${_fmtFechaCorta(s.ultima_mod||s.fecha_apertura)}</td><td style="padding:10px 12px"><span class="editable-name" onclick="editNombreSop(${i},event)" style="font-size:13px;font-weight:500;">${s.tarea||s.proyecto}</span><div style="font-size:11px;color:var(--gray);margin-top:2px">${s.desc?s.desc:s.proyecto}</div></td><td style="padding:8px 10px"><span class="ing-chip ing-chip-${s.ing||''}">${s.ing||'&#x2014;'}</span></td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderPrioridadBadge(i,s.prioridad)}</td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderEstadoSopBadge(i,s.estado_sop)}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_est||0).toFixed(1)}h</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_real||0).toFixed(1)}h</td></tr>`;}).join("");
-  document.getElementById("viewProyectos").innerHTML=kpis+`<div style="background:white;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="sop-table"><thead><tr><th style="min-width:80px">Modificado</th><th style="min-width:200px">Tarea / Sistema</th><th>Ingeniero</th><th>Prioridad</th><th>Estado</th><th>Estimado</th><th>Real</th></tr></thead><tbody>${filas||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--gray)">Sin ítems de soporte</td></tr>'}</tbody></table></div>`;
+  const filas=sops.map((s)=>{const i=s._origIdx;return`<tr onclick="modalSop(${i})"><td style="padding:10px 8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${_fmtFechaCorta(s.ultima_mod||s.fecha_apertura)}</td><td style="padding:10px 12px"><span class="editable-name" onclick="editNombreSop(${i},event)" style="font-size:13px;font-weight:500;">${s.tarea||s.proyecto}</span><div style="font-size:11px;color:var(--gray);margin-top:2px">${s.desc?s.desc:s.proyecto}</div></td><td style="padding:8px 10px"><span class="ing-chip ing-chip-${s.ing||''}">${s.ing||'&#x2014;'}</span></td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderPrioridadBadge(i,s.prioridad)}</td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderEstadoSopBadge(i,s.estado_sop)}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_est||0).toFixed(1)}h</td><td style="padding:10px 8px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${s.fecha_soporte||'\u2014'}</td><td style="padding:10px 8px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${s.fecha_apertura||'\u2014'}</td><td style="padding:10px 12px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray)">${(s.horas_real||0).toFixed(1)}h</td></tr>`;}).join("");
+  document.getElementById("viewProyectos").innerHTML=kpis+`<div style="background:white;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="sop-table"><thead><tr><th style="min-width:80px">Modificado</th><th style="min-width:200px">Tarea / Sistema</th><th>Ingeniero</th><th>Prioridad</th><th>Estado</th><th style="min-width:100px">Fecha soporte</th><th style="min-width:100px">Fecha creación</th><th>Estimado</th><th>Real</th></tr></thead><tbody>${filas||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--gray)">Sin ítems de soporte</td></tr>'}</tbody></table></div>`;
 }
 
 function saveSop(idx){
