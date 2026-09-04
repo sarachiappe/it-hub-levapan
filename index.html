@@ -2312,6 +2312,14 @@ document.getElementById("clearBtn").addEventListener("click",()=>{
 
 // Detail panel
 let currentDetailIdx = null;
+function abrirDetailPorId(id){
+  if(id==null) return;
+  const idx = DATOS.findIndex(x=>x._id===id);
+  if(idx<0){ window.alert('No se encontró la iniciativa original en Demanda.'); return; }
+  cerrarPanelProyecto();
+  openDetail(idx);
+}
+
 function openDetail(idx){
   const d=DATOS[idx];if(!d)return;
   currentDetailIdx=idx;
@@ -3682,7 +3690,18 @@ const HITOS_BASE = [
 
 function loadPMO(){return _cache.pmo;}
 function savePMO(d){_cache.pmo=d;fsSet("pmo",{pmo:d});}
-function getPMO(id){ const key=String(id); return (loadPMO())[key] || {etapas:{}, hitos:{}, equipo:[]}; }
+function getPMO(id){
+  const key=String(id);
+  const local = (loadPMO())[key];
+  if(local) return local;
+  // Fallback: si el id pertenece a un proyecto espejo vinculado a IA Aplicada,
+  // usar su PMO real de Maestro — así toda la app (KPIs, mini-gantt, panel) lo trata igual.
+  if(typeof _maestroMirror!=='undefined'){
+    const mm = _maestroMirror.find(m=>String(m.proj._id)===key);
+    if(mm) return mm.pmo;
+  }
+  return {etapas:{}, hitos:{}, equipo:[]};
+}
 function setPMO(id, data){
   const all=loadPMO(), prev=all[String(id)]||{};
   all[String(id)]=data; savePMO(all);
@@ -3694,6 +3713,7 @@ function setPMO(id, data){
 }
 
 let pmoSelectedId = null;
+let _pmoCurrentD = null; // referencia al objeto (nativo o espejo) abierto en el panel de proyecto
 let pmoFiltro = ""; // filtro interno de la tabla de proyectos
 
 // ── Calcular progreso general ──────────────────
@@ -3723,17 +3743,32 @@ function setPmoFiltro(f){
 }
 
 function renderProyectos(){
-  // Sincronizar estados de todos los proyectos al renderizar
-  // (excluye los vinculados a IA Aplicada: su cronograma vive en Maestro, no aquí)
+  // Sincronizar estados de todos los proyectos propios del index al renderizar
+  // (los vinculados a IA Aplicada no tienen PMO propio en el index, se sincronizan en Maestro)
   DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada').forEach(d=>{
     sincronizarEstadoDesdePMO(d._id);
   });
 
-  // Apply sidebar filters to proyectos
-  // Excluye iniciativas ya vinculadas a un proyecto de IA Aplicada — esas se muestran
-  // solo en el bloque "Proyectos vinculados de IA Aplicada" (espejo desde Maestro),
-  // para que nunca aparezcan duplicadas.
+  // Apply sidebar filters to proyectos (propios del index, sin duplicar los vinculados)
   let proyectos = DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada');
+
+  // Consolidar: agregar los proyectos vinculados desde IA Aplicada a la MISMA lista,
+  // para que aparezcan mezclados en una sola tabla (nunca en un bloque aparte).
+  // getPMO() ya sabe resolver su cronograma real desde el espejo de Maestro.
+  _maestroMirror.forEach(({proj})=>{
+    proyectos.push({
+      _id: proj._id,
+      req: proj.req,
+      area: proj.area||'IA Aplicada',
+      sub: proj.tipo||'',
+      codigo: proj.codigo||'',
+      estado: proj.estado||'En proceso',
+      impacto: proj.impacto||'',
+      complejidad: proj.complejidad||'',
+      _esMirror: true,
+      _idIniciativaOrigen: proj.escalado_desde_demanda
+    });
+  });
   if(filters.area)        proyectos = proyectos.filter(d=>d.area===filters.area);
   if(filters.tipo)        proyectos = proyectos.filter(d=>d.cuad===filters.tipo);
   if(filters.impacto)     proyectos = proyectos.filter(d=>d.impacto===filters.impacto);
@@ -3933,6 +3968,7 @@ function renderProyectos(){
 
 // ══════════════════════════════════════════════
 // ESPEJO — proyectos vinculados desde IA Aplicada
+// Se cargan una vez y se re-renderiza la tabla consolidada cuando llegan.
 // ══════════════════════════════════════════════
 let _maestroMirror = [];
 let _maestroMirrorLoaded = false;
@@ -3969,97 +4005,14 @@ async function cargarMaestroMirror(){
 }
 
 async function renderProyectosMirror(){
-  if(!_maestroMirrorLoaded) await cargarMaestroMirror();
-  const cont = document.getElementById("viewProyectos");
-  if(!cont) return;
-  document.getElementById('proyectos-mirror-block')?.remove();
-  if(!_maestroMirror.length) return;
-
-  const filas = _maestroMirror.map(({proj,pmo})=>{
-    const prog = calcProgreso(pmo);
-    return `<tr onclick="abrirPanelProyectoMirror(${proj._id})" style="cursor:pointer;">
-      <td style="min-width:200px;padding:10px 12px;">
-        <div style="font-weight:600;font-size:13px;color:var(--navy);">${proj.req}</div>
-        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);margin-top:2px;">${proj.codigo||''}</div>
-      </td>
-      <td style="padding:10px 12px;font-size:12px;color:var(--gray);">${(proj.ing||[]).join(', ')||'Sin asignar'}</td>
-      <td style="padding:10px 12px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="flex:1;height:6px;background:var(--off);border-radius:3px;overflow:hidden;max-width:100px;"><div style="height:100%;width:${prog}%;background:#4338CA;"></div></div>
-          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--navy);">${prog}%</span>
-        </div>
-      </td>
-      <td style="padding:10px 12px;text-align:right;"><span style="font-size:11px;color:var(--gray);">Ver cronograma →</span></td>
-    </tr>`;
-  }).join('');
-
-  const html = `<div id="proyectos-mirror-block" style="background:var(--white);border-radius:10px;border:1px solid var(--border);margin-top:16px;overflow:hidden;">
-    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-      <span style="font-size:14px;">🔗</span>
-      <span style="font-size:13px;font-weight:700;color:var(--navy);">Proyectos vinculados de IA Aplicada</span>
-      <span style="font-size:11px;color:var(--gray);">(${_maestroMirror.length}) · espejo en tiempo real desde Maestro</span>
-    </div>
-    <table style="width:100%;border-collapse:collapse;">
-      <thead><tr style="background:var(--off);"><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Proyecto</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Ingeniero</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Avance</th><th></th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
-  </div>`;
-  cont.insertAdjacentHTML('beforeend', html);
+  if(_maestroMirrorLoaded) return;
+  await cargarMaestroMirror();
+  if(view==='proyectos') renderProyectos(); // re-render ya consolidado con los datos de Maestro
 }
 
 function abrirPanelProyectoMirror(maestroId){
-  const item = _maestroMirror.find(m=>m.proj._id===maestroId);
-  if(!item){ window.alert('No se pudo cargar este proyecto. Intenta recargar la vista.'); return; }
-  const panel = document.getElementById("pmoPanelContent");
-  if(panel) panel.innerHTML = renderPMODetailMirror(item.proj, item.pmo);
-  document.getElementById("pmoPanelOverlay").classList.add("open");
-}
-
-function renderPMODetailMirror(proj, pmo){
-  const prog = calcProgreso(pmo);
-  const etapasHTML = ETAPAS_BASE.map(e=>{
-    const ed = pmo.etapas?.[e.id] || {};
-    const pct = calcPctEtapa(ed);
-    return `<div style="margin-bottom:14px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
-        <span style="font-size:12.5px;font-weight:600;color:var(--navy);">${e.nombre}</span>
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);">${pct}%${ed.inicio?' · '+fmtFecha(ed.inicio):''}${ed.fin?' → '+fmtFecha(ed.fin):''}</span>
-      </div>
-      <div style="height:7px;background:rgba(255,255,255,.12);border-radius:4px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:${e.color};"></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  return `
-    <div class="pmo-panel-header">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-        <div style="flex:1;">
-          <div class="pmo-panel-title">${proj.req}</div>
-          ${proj.codigo?`<div style="font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,.5);margin:2px 0 4px;letter-spacing:.03em;">${proj.codigo}</div>`:''}
-          <div class="pmo-panel-meta">
-            <span style="font-size:11px;background:#4338CA;color:white;padding:2px 8px;border-radius:8px;">🔗 IA Aplicada</span>
-            <span style="font-size:11px;color:rgba(255,255,255,.6);">Progreso: <strong style="color:white">${prog}%</strong></span>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-shrink:0;">
-          <button onclick="cerrarPanelProyecto()" class="pmo-panel-close">✕</button>
-        </div>
-      </div>
-    </div>
-    <div style="padding:16px 24px;background:#EEF2FF;border-bottom:1px solid #C7D2FE;font-size:12px;color:#4338CA;">
-      Este proyecto se gestiona desde <strong>Maestro IA Aplicada</strong>. La vista es de solo lectura — los cambios se sincronizan automáticamente.
-    </div>
-    <div class="pmo-panel-body">
-      <div style="padding:20px 24px;">
-        <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">Cronograma</div>
-        ${etapasHTML}
-        ${proj.brief?`<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
-          <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Brief</div>
-          <div style="font-size:12.5px;color:var(--navy);line-height:1.7;white-space:pre-wrap;">${proj.brief}</div>
-        </div>`:''}
-      </div>
-    </div>`;
+  // Compatibilidad: ahora el panel de proyecto maneja espejos de forma nativa.
+  abrirPanelProyecto(maestroId);
 }
 
 function selectProyecto(id){
@@ -4074,7 +4027,24 @@ function abrirPanelProyecto(idIni){
   idIni = typeof idIni==='string' ? (isNaN(idIni)?idIni:Number(idIni)) : idIni;
   pmoSelectedId = idIni;
   pmoActiveTab = "gantt";
-  const d = DATOS.find(x=>x._id===idIni); if(!d) return;
+  let d = DATOS.find(x=>x._id===idIni);
+  if(!d){
+    // No es un proyecto propio del index: buscar en el espejo de IA Aplicada
+    const mm = _maestroMirror.find(m=>m.proj._id===idIni);
+    if(!mm){ window.alert('No se pudo cargar este proyecto. Intenta recargar la vista.'); return; }
+    d = {
+      _id: mm.proj._id,
+      req: mm.proj.req,
+      desc: mm.proj.desc||'',
+      brief: mm.proj.brief||'',
+      area: mm.proj.area||'IA Aplicada',
+      estado: mm.proj.estado||'En proceso',
+      codigo: mm.proj.codigo||'',
+      _esMirror: true,
+      _idIniciativaOrigen: mm.proj.escalado_desde_demanda
+    };
+  }
+  _pmoCurrentD = d;
   const pmo = getPMO(idIni);
   const panel = document.getElementById("pmoPanelContent");
   if(panel) panel.innerHTML = renderPMODetail(d, pmo);
@@ -4105,6 +4075,7 @@ function renderPMODetail(d, pmo){
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
+          ${d._esMirror ? `<span style="padding:6px 12px;background:rgba(67,56,202,.3);border:1px solid rgba(67,56,202,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;white-space:nowrap;">🔗 Gestionado desde Maestro IA Aplicada</span>` : `
           ${!pmo.detenido
             ? `<button onclick="abrirModalDetenido(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.3);border:1px solid rgba(163,45,45,.5);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">⏸ Detener proyecto</button>`
             : `<span id="reactivar-wrap-${d._id}" style="display:inline-flex;align-items:center;gap:6px;">
@@ -4117,7 +4088,8 @@ function renderPMODetail(d, pmo){
               </span>`
           }
           <button id="btn-del-proy-${d._id}" onclick="eliminarProyecto(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.25);border:1px solid rgba(163,45,45,.4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#ffb3b3;cursor:pointer;white-space:nowrap;transition:all .2s;">🗑 Eliminar proyecto</button>
-          <button onclick="openDetail(${DATOS.indexOf(d)})" style="padding:6px 12px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">Ver iniciativa →</button>
+          `}
+          ${(d._esMirror ? d._idIniciativaOrigen!=null : true) ? `<button onclick="${d._esMirror?`abrirDetailPorId(${d._idIniciativaOrigen})`:`openDetail(${DATOS.indexOf(d)})`}" style="padding:6px 12px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">Ver iniciativa →</button>` : ''}
           <button class="pmo-panel-close" onclick="cerrarPanelProyecto()">✕</button>
         </div>
       </div>
@@ -4202,7 +4174,7 @@ function toggleAtrasoAlert(id){
 
 function switchPMOTab(tab){
   pmoActiveTab = tab;
-  const d = DATOS.find(x=>x._id===pmoSelectedId); if(!d) return;
+  const d = _pmoCurrentD; if(!d) return;
   const pmo = getPMO(d._id);
   const content = document.getElementById("pmo-tab-content");
   if(content) content.innerHTML = renderPMOTab(d, pmo, tab);
@@ -4214,11 +4186,16 @@ function switchPMOTab(tab){
 }
 
 function renderPMOTab(d, pmo, tab){
-  if(tab==="gantt")  return renderGantt(d, pmo);
-  if(tab==="hitos")  return renderHitosTab(d, pmo);
-  if(tab==="equipo") return renderEquipoTab(d, pmo);
+  // Para proyectos espejo (gestionados desde Maestro), el Gantt y el Equipo se
+  // muestran con el MISMO componente visual (fidelidad total), pero bloqueados
+  // ante clics para no escribir por error en el PMO propio del index — la edición
+  // real de esos datos se hace desde Maestro.
+  const lock = html => d._esMirror ? `<div style="pointer-events:none;">${html}</div>` : html;
+  if(tab==="gantt")  return lock(renderGantt(d, pmo));
+  if(tab==="hitos")  return lock(renderHitosTab(d, pmo));
+  if(tab==="equipo") return lock(renderEquipoTab(d, pmo));
   if(tab==="brief")  return renderBriefTab(d);
-  if(tab==="diario") return renderDiarioTabPMO(d);
+  if(tab==="diario") return renderDiarioTabPMO(d); // el diario sí es compartido y editable
   return "";
 }
 
@@ -4839,8 +4816,11 @@ function editarRangoProyecto(idIni){
 
 // ── TAB BRIEF ────────────────────────────────
 function renderDiarioTabPMO(d){
+  // Para espejos, el diario se comparte con la iniciativa ORIGINAL en Demanda,
+  // no con el id del proyecto en Maestro.
+  const idDiario = (d._esMirror && d._idIniciativaOrigen!=null) ? d._idIniciativaOrigen : d._id;
   const todo = loadDiario();
-  const mios = todo.filter(e=>e.idxIniciativa===d._id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const mios = todo.filter(e=>e.idxIniciativa===idDiario).sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const listaHTML = mios.length===0
     ? `<div style="font-size:13px;color:var(--gray);font-style:italic;padding:12px 0;">El diario está vacío. Registra la primera entrada arriba.</div>`
     : `<div style="margin-top:8px;">${mios.map(e=>`
@@ -4859,19 +4839,20 @@ function renderDiarioTabPMO(d){
     <div style="display:flex;gap:8px;">
       <textarea id="pmo-nuevo-comentario" placeholder="Escribe un comentario, nota o actualización..." style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);outline:none;resize:none;min-height:72px;line-height:1.5;" onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--border)'"></textarea>
     </div>
-    <button onclick="agregarComentarioPMO(${d._id})" style="align-self:flex-start;padding:7px 14px;background:var(--teal);border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Agregar entrada</button>
+    <button onclick="agregarComentarioPMO()" style="align-self:flex-start;padding:7px 14px;background:var(--teal);border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Agregar entrada</button>
     <div id="pmo-diario-lista">${listaHTML}</div>
   </div>`;
 }
 
-function agregarComentarioPMO(idIni){
+function agregarComentarioPMO(){
   const ta = document.getElementById("pmo-nuevo-comentario");
   const texto = ta?.value.trim();
   if(!texto) return;
-  const d = DATOS.find(x=>x._id===idIni); if(!d) return;
+  const d = _pmoCurrentD; if(!d) return;
+  const idDiario = (d._esMirror && d._idIniciativaOrigen!=null) ? d._idIniciativaOrigen : d._id;
   const e = {
     id: Date.now()+"",
-    idxIniciativa: d._id,
+    idxIniciativa: idDiario,
     iniciativaNombre: d.req,
     texto,
     fecha: new Date().toISOString()
@@ -4885,7 +4866,7 @@ function agregarComentarioPMO(idIni){
 
 function eliminarEntradaDiarioPMO(id){
   saveDiario(loadDiario().filter(e=>e.id!==id));
-  const d = DATOS.find(x=>x._id===pmoSelectedId);
+  const d = _pmoCurrentD;
   const content = document.getElementById("pmo-tab-content");
   if(d && content) content.innerHTML = renderDiarioTabPMO(d);
 }
@@ -4897,7 +4878,7 @@ function renderBriefTab(d){
       ? `<div class="review-brief-box" style="font-size:12.5px;line-height:1.8;white-space:pre-wrap;">${d.brief}</div>`
       : `<div style="font-size:13px;color:var(--gray);font-style:italic;padding:12px 0;">Esta iniciativa no tiene brief generado todavía. Ábrela desde la vista de demanda para generarlo.</div>`
     }
-    <button onclick="openDetail(${DATOS.indexOf(d)})" style="align-self:flex-start;padding:7px 14px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);cursor:pointer;">Abrir panel completo →</button>
+    ${!d._esMirror ? `<button onclick="openDetail(${DATOS.indexOf(d)})" style="align-self:flex-start;padding:7px 14px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);cursor:pointer;">Abrir panel completo →</button>` : (d._idIniciativaOrigen!=null ? `<button onclick="abrirDetailPorId(${d._idIniciativaOrigen})" style="align-self:flex-start;padding:7px 14px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);cursor:pointer;">Ver iniciativa de origen →</button>` : '')}
   </div>`;
 }
 
