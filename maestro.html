@@ -839,13 +839,9 @@ function sincronizarEstadoDesdePMO(idIni){
     update();
   }
 
-  // Regla: avance al 100% → Finalizado
-  if(prog===100 && d.estado !== "Finalizado"){
-    d.estado = "Finalizado";
-    saveToStorage();
-    registrarActividad("proyecto_finalizado", `Proyecto finalizado: "${d.req}"`);
-    update();
-  }
+  // Regla: el proyecto SOLO pasa a "Finalizado" cuando se marca explícitamente
+  // el hito de Cierre — llegar al 100% de avance en las etapas no es suficiente.
+  // (El cambio a Finalizado ocurre en sincronizarEstadoDesdeHito al marcar Cierre.)
 
   // Nota si hay avance pero KickOff no está marcado — solo mostrar si se llama desde guardarEtapa
   const kickoffRealizado = pmo.hitos?.kickoff?.realizado;

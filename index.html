@@ -3018,7 +3018,8 @@ async function _loadFeedEjecutivo(){ await renderFeed(); }
 // Helper para calcular estado PMO fuera del contexto de renderProyectos
 function calcEstadoPMOExec(d, pmo){
   const prog = calcProgreso(pmo);
-  if(d.estado==="Finalizado"||prog===100) return "Finalizado";
+  // "Finalizado" requiere el hito de Cierre marcado, no solo 100% de avance
+  if(d.estado==="Finalizado") return "Finalizado";
   if(pmo.detenido) return "Detenido";
   if(d.estado==="Pre-Kickoff"||d.estado==="Iniciativa aprobada") return "Pre-KickOff";
   const hoy = new Date().toISOString().slice(0,10);
@@ -3786,8 +3787,8 @@ function renderProyectos(){
   // Estado PMO calculado por proyecto
   function calcEstadoPMO(d, pmo){
     const prog = calcProgreso(pmo);
-    // Finalizado
-    if(d.estado==="Finalizado"||prog===100) return {label:"Finalizado", color:"#1D9E75", bg:"#E1F5EE"};
+    // Finalizado: requiere el hito de Cierre marcado, no solo 100% de avance en etapas
+    if(d.estado==="Finalizado") return {label:"Finalizado", color:"#1D9E75", bg:"#E1F5EE"};
     // Detenido desde PMO (no desde estado de demanda)
     if(pmo.detenido) return {label:"Detenido", color:"#A32D2D", bg:"#FCEBEB"};
     // Pre-KickOff
@@ -4694,12 +4695,9 @@ function sincronizarEstadoDesdePMO(idIni){
     update();
   }
 
-  // Regla: avance al 100% → Finalizado
-  if(prog===100 && d.estado !== "Finalizado"){
-    d.estado = "Finalizado";
-    saveToStorage();
-    update();
-  }
+  // Regla: el proyecto SOLO pasa a "Finalizado" cuando se marca explícitamente
+  // el hito de Cierre — llegar al 100% de avance en las etapas no es suficiente.
+  // (El cambio a Finalizado ocurre en sincronizarEstadoDesdeHito al marcar Cierre.)
 
   // Nota si hay avance pero KickOff no está marcado — solo mostrar si se llama desde guardarEtapa
   const kickoffRealizado = pmo.hitos?.kickoff?.realizado;
