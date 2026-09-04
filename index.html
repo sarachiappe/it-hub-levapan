@@ -2218,7 +2218,7 @@ function update(){
     if(btn) btn.classList.toggle("active", view===v.toLowerCase());
   });
   if(view==="matrix") renderMatrix(data);
-  if(view==="ejecutivo") { renderEjecutivo(); _loadFeedEjecutivo(); }
+  if(view==="ejecutivo") { renderEjecutivo(); }
   if(view==="tareas") renderTareasGlobal();
   if(view==="proyectos") renderProyectos();
 }
@@ -2817,24 +2817,36 @@ function renderEjecutivo(){
 
   // ── DATOS BASE ─────────────────────────────────
   const todos = DATOS;
-
-  // ── BLOQUE 1: PIPELINE ─────────────────────────
+  const allAreas = Object.keys(AREA_COL);
   const total = todos.length;
-  const porTipo = {E:0,QW:0,H:0};
-  todos.forEach(d=>{ if(porTipo[d.cuad]!==undefined) porTipo[d.cuad]++; });
 
-  // Demanda: iniciativas en etapas previas a proyecto
+  // ── DEMANDA ─────────────────────────────────
   const ESTADOS_DEMANDA_PIPELINE = ["Por Levantar","En Levantamiento","En caso de negocio","Iniciativa aprobada"];
   const demandaCount = todos.filter(d=>ESTADOS_DEMANDA_PIPELINE.includes(d.estado)).length;
+  const porEstado = {};
+  ESTADOS_ORDEN.forEach(e=>porEstado[e]=todos.filter(d=>d.estado===e).length);
+  const porArea = {};
+  allAreas.forEach(a=>porArea[a]=todos.filter(d=>d.area===a).length);
+  const areaTop = allAreas.reduce((best,a)=> (porArea[a]||0) > (porArea[best]||0) ? a : best, allAreas[0]);
 
-  // Proyectos — misma lista que la tabla de proyectos (excluye vinculados a IA Aplicada)
+  // ── PROYECTOS ─────────────────────────────────
   const proyectosDatos = todos.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada');
   const proyDetenidos  = proyectosDatos.filter(d=>getPMO(d._id).detenido===true).length;
   const proyFinaliz    = proyectosDatos.filter(d=>{ const pmo=getPMO(d._id); return calcEstadoPMOExec(d,pmo)==="Finalizado"; }).length;
-  // Proyectos activos = total en tabla - detenidos - finalizados
   const proyActivos    = proyectosDatos.length - proyDetenidos - proyFinaliz;
+  const porEstadoPMO = {"Pre-KickOff":0,"En proceso":0,"Atrasado":0,"Detenido":0,"Finalizado":0};
+  let progSum = 0;
+  proyectosDatos.forEach(d=>{
+    const pmo = getPMO(d._id);
+    const e = pmo.detenido?"Detenido":calcEstadoPMOExec(d,pmo);
+    if(porEstadoPMO[e]!==undefined) porEstadoPMO[e]++;
+    progSum += calcProgreso(pmo);
+  });
+  const avgProgProy = proyectosDatos.length>0 ? Math.round(progSum/proyectosDatos.length) : 0;
+  const porAreaProy = {};
+  allAreas.forEach(a=>porAreaProy[a]=proyectosDatos.filter(d=>d.area===a).length);
 
-  // Procesos activos: tiene etapas con al menos 1% de avance en alguna etapa o sub-etapa
+  // ── PROCESOS ─────────────────────────────────
   const macros = getMacros();
   const procActivos = macros.filter(nombre=>{
     const md = getMacroData(nombre);
@@ -2847,22 +2859,18 @@ function renderEjecutivo(){
     });
   }).length;
 
-  // ── BLOQUE 2: DEMANDA ──────────────────────────
-  const porEstado = {};
-  ESTADOS_ORDEN.forEach(e=>porEstado[e]=todos.filter(d=>d.estado===e).length);
-  const allAreas = Object.keys(AREA_COL);
+  // ── INFRAESTRUCTURA ─────────────────────────────────
+  const infraAll = loadInfra();
+  const infraActivos = infraAll.filter(p=>p.estado!=='Finalizado').length;
+  const infraAvgPct = infraAll.length ? Math.round(infraAll.reduce((s,p)=>s+(p.pct||0),0)/infraAll.length) : 0;
+  const infraPorEstado = {};
+  infraAll.forEach(p=>{ infraPorEstado[p.estado] = (infraPorEstado[p.estado]||0)+1; });
+  const infraPorPrioridad = {"Crítica":0,"Alta":0,"Media":0,"Baja":0};
+  infraAll.forEach(p=>{ if(infraPorPrioridad[p.prioridad]!==undefined) infraPorPrioridad[p.prioridad]++; });
+  const INFRA_ESTADO_COL = {"En curso":"#028090","En control":"#BA7517","Priorizado":"#5430B3","Finalizado":"#1D9E75"};
+  const INFRA_PRIOR_COL = {"Crítica":"#A32D2D","Alta":"#BA7517","Media":"#378ADD","Baja":"#888780"};
 
-  // ── BLOQUE 3: PROYECTOS ────────────────────────
-  const porEstadoPMO = {"Pre-KickOff":0,"En proceso":0,"Atrasado":0,"Detenido":0,"Finalizado":0};
-  proyectosDatos.forEach(d=>{
-    const pmo = getPMO(d._id);
-    const e = pmo.detenido?"Detenido":calcEstadoPMOExec(d,pmo);
-    if(porEstadoPMO[e]!==undefined) porEstadoPMO[e]++;
-  });
-  const porAreaProy = {};
-  allAreas.forEach(a=>porAreaProy[a]=proyectosDatos.filter(d=>d.area===a).length);
-
-  // ── BLOQUE 4: PRODUCTIVIDAD ────────────────────
+  // ── PRODUCTIVIDAD ─────────────────────────────────
   const allEF = loadEF();
   const conEF = todos.filter(d=>{ const ef=allEF[d._id]; return ef&&(ef.inversion||ef.roi||ef.horasMes); });
   let invTotal=0,invCount=0,roiSum=0,roiCount=0,ahorroHmes=0;
@@ -2874,7 +2882,9 @@ function renderEjecutivo(){
   });
   const fmtNum = n=>n>=1000000?'$'+(n/1000000).toFixed(1)+'M':n>=1000?'$'+(n/1000).toFixed(0)+'K':'$'+n;
   const fteLiberados = (ahorroHmes/160).toFixed(1);
+  const coberturaEF = total>0 ? Math.round((conEF.length/total)*100) : 0;
 
+  // ── HELPERS VISUALES ─────────────────────────────────
   function barRow(label, n, total, col){
     const pct = total>0?Math.round((n/total)*100):0;
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
@@ -2883,6 +2893,54 @@ function renderEjecutivo(){
       <div style="width:28px;text-align:right;font-size:11px;font-family:'DM Mono',monospace;color:var(--navy);">${n}</div>
     </div>`;
   }
+
+  function svgRing(pct, color, size, stroke){
+    const r = (size-stroke)/2;
+    const c = 2*Math.PI*r;
+    const off = c - (Math.max(0,Math.min(100,pct))/100)*c;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg);flex-shrink:0;">
+      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${stroke}"/>
+      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}"/>
+    </svg>`;
+  }
+
+  function ringStat(pct, color, size, sublabel){
+    size = size||76;
+    return `<div style="display:flex;align-items:center;gap:14px;">
+      <div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;">
+        ${svgRing(pct,color,size,7)}
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-weight:700;font-size:16px;color:var(--navy);">${pct}%</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;">${sublabel}</div>
+      </div>
+    </div>`;
+  }
+
+  function heroCard(icon, val, label, sub, accent, bg){
+    return `<div style="background:${bg};border-radius:12px;padding:18px 20px;border:1px solid ${accent}33;position:relative;overflow:hidden;">
+      <div style="position:absolute;right:-8px;top:-8px;font-size:52px;opacity:.12;">${icon}</div>
+      <div style="position:relative;">
+        <div style="font-size:30px;font-weight:800;color:${accent};line-height:1;">${val}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--navy);margin-top:6px;">${label}</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">${sub}</div>
+      </div>
+    </div>`;
+  }
+
+  function moduleHeader(icon, title, accent, badge){
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <div style="width:32px;height:32px;border-radius:8px;background:${accent}1a;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">${icon}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);">${title}</div>
+      </div>
+      ${badge?`<div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${accent};background:${accent}14;padding:3px 10px;border-radius:20px;">${badge}</div>`:''}
+    </div>`;
+  }
+
+  const chipRow = (entries) => `<div style="display:flex;flex-wrap:wrap;gap:6px;">${entries.map(([label,n,col])=>
+    n>0?`<span style="font-size:10.5px;padding:4px 9px;border-radius:20px;background:${col}14;color:${col};font-weight:600;white-space:nowrap;">${label} · ${n}</span>`:''
+  ).join('')}</div>`;
 
   document.getElementById("viewEjecutivo").innerHTML = `<div style="padding:20px;display:flex;flex-direction:column;gap:20px;">
 
@@ -2894,126 +2952,112 @@ function renderEjecutivo(){
       </div>
     </div>
 
-    <!-- BLOQUE 1: PIPELINE -->
-    <div style="background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px 20px;">
-      <div class="exec-section-title" style="margin-bottom:12px;">1 · Resumen del pipeline</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
-        <div style="background:#F5F7FF;border-radius:8px;padding:14px;text-align:center;border:1px solid var(--border);">
-          <div style="font-size:28px;font-weight:700;color:var(--navy);">${demandaCount}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Demanda</div>
-          <div style="font-size:10px;color:var(--gray);opacity:.7;">Por levantar → Aprobadas</div>
-        </div>
-        <div style="background:#F0F8FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #C5D4F5;">
-          <div style="font-size:28px;font-weight:700;color:#028090;">${proyActivos}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Proyectos activos</div>
-        </div>
-        <div style="background:#FCEBEB;border-radius:8px;padding:14px;text-align:center;border:1px solid #F5C6C6;">
-          <div style="font-size:28px;font-weight:700;color:#A32D2D;">${proyDetenidos}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Proyectos detenidos</div>
-        </div>
-        <div style="background:#E1F5EE;border-radius:8px;padding:14px;text-align:center;border:1px solid #A8DFC9;">
-          <div style="font-size:28px;font-weight:700;color:#1D9E75;">${proyFinaliz}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Proyectos finalizados</div>
-        </div>
-        <div style="background:#F5F0FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #C9B8F0;">
-          <div style="font-size:28px;font-weight:700;color:#5430B3;">${procActivos}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Procesos activos</div>
-        </div>
-        <div style="background:#EEF0FF;border-radius:8px;padding:14px;text-align:center;border:1px solid #C9C0F5;">
-          <div style="font-size:28px;font-weight:700;color:#5430B3;">${(()=>{const inf=loadInfra();return inf.filter(p=>p.estado!=='Finalizado').length;})()}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px;">Proyectos infra</div>
-          <div style="font-size:10px;color:var(--gray);opacity:.7;">⌀ ${(()=>{const inf=loadInfra();return inf.length?Math.round(inf.reduce((s,p)=>s+(p.pct||0),0)/inf.length)+'%':'0%';})()}</div>
-        </div>
-      </div>
+    <!-- HERO KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+      ${heroCard('💡', total, 'Iniciativas totales', `${demandaCount} en pipeline de demanda`, '#378ADD', '#F0F6FF')}
+      ${heroCard('⚡', proyActivos, 'Proyectos activos', `${avgProgProy}% de avance promedio`, '#028090', '#EAF7F7')}
+      ${heroCard('🏗️', infraActivos, 'Proyectos de infraestructura', `⌀ ${infraAvgPct}% de avance`, '#5430B3', '#F3EEFF')}
+      ${heroCard('🎯', procActivos, 'Procesos activos', `${macros.length} macroprocesos mapeados`, '#7ACC00', '#F3FAE9')}
     </div>
 
-  <!-- BLOQUE ACTIVIDAD RECIENTE -->
-  <div style="background:white;border-radius:10px;border:1px solid var(--border);padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.06);">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <div>
-        <div style="font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;">Actividad reciente</div>
-        <div style="font-size:11px;color:var(--gray);margin-top:2px;">Últimas acciones en el IT HUB y Maestro IA Aplicada</div>
-      </div>
-      <button onclick="renderFeed()" style="background:var(--teal-lt);border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--navy);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;" onmouseover="this.style.background='#d0d8f5'" onmouseout="this.style.background='var(--teal-lt)'">↺ Actualizar</button>
-    </div>
-    <div id="feed-container" style="max-height:320px;overflow-y:auto;padding-right:4px;">
-      <div style="color:var(--gray);font-size:13px;padding:16px 0;text-align:center;">Cargando actividad...</div>
-    </div>
+    <!-- GRID DE MÓDULOS -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;">
 
-    <!-- BLOQUE 2: DEMANDA -->
-    <div style="background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px 20px;">
-      <div class="exec-section-title" style="margin-bottom:12px;">2 · Demanda tecnológica</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        <!-- Por área -->
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
-          ${allAreas.map(area=>{ const n=todos.filter(d=>d.area===area).length; return n>0?barRow(area,n,total,AREA_COL[area]):'' }).join('')}
+      <!-- DEMANDA -->
+      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #378ADD;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+        ${moduleHeader('💡','Demanda tecnológica','#378ADD', total+' totales')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
+            ${allAreas.map(area=>{ const n=porArea[area]||0; return n>0?barRow(area,n,total,AREA_COL[area]):'' }).join('')}
+          </div>
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado</div>
+            ${ESTADOS_ORDEN.map(e=>{ const n=porEstado[e]||0; return n>0?barRow(e,n,total,ESTADO_COLOR_MAP[e]):'' }).join('')}
+          </div>
         </div>
-        <!-- Por estado -->
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado</div>
-          ${ESTADOS_ORDEN.map(e=>{ const n=porEstado[e]||0; return n>0?barRow(e,n,total,ESTADO_COLOR_MAP[e]):'' }).join('')}
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--gray);">
+          Área con mayor demanda: <strong style="color:${AREA_COL[areaTop]||'var(--navy)'};">${areaTop}</strong> (${porArea[areaTop]||0} iniciativas)
         </div>
       </div>
-    </div>
 
-    <!-- BLOQUE 3: PROYECTOS -->
-    <div style="background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px 20px;">
-      <div class="exec-section-title" style="margin-bottom:12px;">3 · Proyectos</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado PMO</div>
-          ${Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,c])=>barRow(e,porEstadoPMO[e]||0,proyectosDatos.length||1,c)).join('')}
+      <!-- PROYECTOS -->
+      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #028090;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+        ${moduleHeader('⚡','Proyectos','#028090', proyectosDatos.length+' en total')}
+        <div style="display:flex;gap:20px;align-items:center;margin-bottom:16px;">
+          ${ringStat(avgProgProy, '#028090', 76, 'Avance promedio del portafolio')}
         </div>
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
-          ${allAreas.map(area=>{ const n=porAreaProy[area]||0; return n>0?barRow(area,n,proyectosDatos.length||1,AREA_COL[area]):'' }).join('')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado PMO</div>
+            ${Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,c])=>barRow(e,porEstadoPMO[e]||0,proyectosDatos.length||1,c)).join('')}
+          </div>
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
+            ${allAreas.map(area=>{ const n=porAreaProy[area]||0; return n>0?barRow(area,n,proyectosDatos.length||1,AREA_COL[area]):'' }).join('')}
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- BLOQUE 4: PRODUCTIVIDAD -->
-    <div style="background:var(--white);border-radius:10px;border:1px solid var(--border);padding:16px 20px;">
-      <div class="exec-section-title" style="margin-bottom:12px;">4 · Productividad</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
-        <div style="background:var(--off);border-radius:8px;padding:14px;border:1px solid var(--border);">
-          <div style="font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Inversión total portafolio</div>
-          <div style="font-size:24px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;">${invCount>0?fmtNum(invTotal):'—'}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:3px;">${invCount} iniciativa${invCount!==1?'s':''} evaluadas</div>
+      <!-- INFRAESTRUCTURA -->
+      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #5430B3;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+        ${moduleHeader('🏗️','Infraestructura','#5430B3', infraAll.length+' proyectos')}
+        <div style="display:flex;gap:20px;align-items:center;margin-bottom:16px;">
+          ${ringStat(infraAvgPct, '#5430B3', 76, 'Avance promedio de infraestructura')}
         </div>
-        <div style="background:var(--off);border-radius:8px;padding:14px;border:1px solid var(--border);">
-          <div style="font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ROI promedio esperado</div>
-          <div style="font-size:24px;font-weight:700;color:#085041;font-family:'DM Mono',monospace;">${roiCount>0?(roiSum/roiCount).toFixed(1)+'x':'—'}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:3px;">${roiCount} con ROI definido</div>
-        </div>
-        <div style="background:var(--off);border-radius:8px;padding:14px;border:1px solid var(--border);">
-          <div style="font-size:10px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">FTE liberados estimados</div>
-          <div style="font-size:24px;font-weight:700;color:#0C447C;font-family:'DM Mono',monospace;">${ahorroHmes>0?fteLiberados:'—'}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:3px;">${ahorroHmes>0?Math.round(ahorroHmes)+' h/mes liberadas':''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado</div>
+            ${Object.entries(INFRA_ESTADO_COL).map(([e,c])=>infraPorEstado[e]?barRow(e,infraPorEstado[e],infraAll.length||1,c):'').join('')}
+          </div>
+          <div>
+            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por prioridad</div>
+            ${chipRow(Object.entries(infraPorPrioridad).map(([p,n])=>[p,n,INFRA_PRIOR_COL[p]]))}
+          </div>
         </div>
       </div>
-      ${(()=>{
-        const top5 = conEF.map(d=>{
-          const ef=allEF[d._id];
-          const costo = parseFloat((ef.costoanual||ef.costoAnual||'').replace(/[^0-9.]/g,''))||0;
-          return {d, ef, costo};
-        }).filter(x=>x.costo>0).sort((a,b)=>b.costo-a.costo).slice(0,5);
-        if(!top5.length) return '<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px;">Completa evaluaciones financieras en la pestaña 📊 Eval. de cada iniciativa.</div>';
-        return '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;"><div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Top 5 · Mayor costo del problema</div>'
-          + top5.map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-            <div style="width:20px;height:20px;border-radius:50%;background:${AREA_COL[x.d.area]||'#888'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;flex-shrink:0;">${i+1}</div>
-            <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" onclick="openDetail(${DATOS.indexOf(x.d)})">${x.d.req}</div>
-            <div style="font-size:10px;color:var(--gray);">${x.d.area}</div></div>
-            <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:#A32D2D;flex-shrink:0;">${fmtNum(x.costo)}</div>
-          </div>`).join('') + '</div>';
-      })()}
-    </div>  </div>
 
+      <!-- PRODUCTIVIDAD -->
+      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #7ACC00;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+        ${moduleHeader('🎯','Productividad','#7ACC00', coberturaEF+'% con caso de negocio')}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:${(()=>{
+          const top5check = conEF.map(d=>{ const ef=allEF[d._id]; const costo=parseFloat((ef.costoanual||ef.costoAnual||'').replace(/[^0-9.]/g,''))||0; return costo; }).filter(c=>c>0);
+          return top5check.length ? '16px' : '0';
+        })()};">
+          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Inversión total</div>
+            <div style="font-size:19px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;">${invCount>0?fmtNum(invTotal):'—'}</div>
+          </div>
+          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">ROI promedio</div>
+            <div style="font-size:19px;font-weight:700;color:#085041;font-family:'DM Mono',monospace;">${roiCount>0?(roiSum/roiCount).toFixed(1)+'x':'—'}</div>
+          </div>
+          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">FTE liberados</div>
+            <div style="font-size:19px;font-weight:700;color:#0C447C;font-family:'DM Mono',monospace;">${ahorroHmes>0?fteLiberados:'—'}</div>
+          </div>
+        </div>
+        ${(()=>{
+          const top5 = conEF.map(d=>{
+            const ef=allEF[d._id];
+            const costo = parseFloat((ef.costoanual||ef.costoAnual||'').replace(/[^0-9.]/g,''))||0;
+            return {d, ef, costo};
+          }).filter(x=>x.costo>0).sort((a,b)=>b.costo-a.costo).slice(0,5);
+          if(!top5.length) return '';
+          return '<div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Top 5 · Mayor costo del problema</div>'
+            + top5.map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
+              <div style="width:18px;height:18px;border-radius:50%;background:${AREA_COL[x.d.area]||'#888'};display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:white;flex-shrink:0;">${i+1}</div>
+              <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" onclick="openDetail(${DATOS.indexOf(x.d)})">${x.d.req}</div>
+              <div style="font-size:10px;color:var(--gray);">${x.d.area}</div></div>
+              <div style="font-family:'DM Mono',monospace;font-size:12.5px;font-weight:700;color:#A32D2D;flex-shrink:0;">${fmtNum(x.costo)}</div>
+            </div>`).join('');
+        })()}
+        ${conEF.length===0?'<div style="text-align:center;padding:16px;color:var(--gray);font-size:12px;">Completa evaluaciones financieras en la pestaña 📊 Eval. de cada iniciativa.</div>':''}
+      </div>
+
+    </div>
   </div>`;
 }
-
-// Cargar feed de actividad async cuando se renderiza la vista ejecutiva
-async function _loadFeedEjecutivo(){ await renderFeed(); }
 
 // Helper para calcular estado PMO fuera del contexto de renderProyectos
 function calcEstadoPMOExec(d, pmo){
@@ -6390,7 +6434,6 @@ auth.onAuthStateChanged(async(user)=>{
     DATOS=loadFromStorage();
     migrarCodigosRetroactivos();
     setView("ejecutivo");
-    _loadFeedEjecutivo();
   } else {
     loginScreen.style.display="flex";
     appContainer.style.display="none";
