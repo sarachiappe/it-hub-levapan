@@ -1150,6 +1150,63 @@ function abrirPanel(id, ing){
 function abrirPanelProyecto(id){ abrirPanel(id, _pmoIng); }
 function cerrarPanelProyecto(){ document.getElementById("pmoPanelOverlay")?.classList.remove("open"); }
 
+function eliminarProyectoMaestro(idProy){
+  const btnId = 'btn-del-proy-'+idProy;
+  const btn = document.getElementById(btnId);
+  if(!btn) return;
+  if(!btn._confirmando){
+    btn._confirmando = true;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '¿Confirmar eliminación?';
+    btn.style.background = 'rgba(163,45,45,.6)';
+    btn.style.border = '1px solid rgba(163,45,45,.8)';
+    setTimeout(()=>{
+      if(btn._confirmando){
+        btn._confirmando=false;
+        btn.innerHTML=orig;
+        btn.style.background='rgba(163,45,45,.25)';
+        btn.style.border='1px solid rgba(163,45,45,.4)';
+      }
+    }, 3500);
+    return;
+  }
+  const idx = DATOS.findIndex(x=>x._id===idProy);
+  if(idx<0) return;
+  const nombre = DATOS[idx].req;
+  const idIniciativaVinculada = DATOS[idx].escalado_desde_demanda;
+  DATOS.splice(idx,1);
+  _save();
+  const allPMO = loadPMO();
+  delete allPMO[String(idProy)];
+  savePMO(allPMO);
+
+  // Si estaba vinculado a una iniciativa del IT HUB, limpiar esa referencia
+  // para que no quede un botón de "Cronograma de proyecto" apuntando a nada.
+  if(idIniciativaVinculada!=null){
+    db.collection(FS_COL).doc('demanda').get().then(snap=>{
+      if(!snap.exists) return;
+      const data = snap.data();
+      const overrides = data.overrides||{};
+      const custom = data.custom||[];
+      let cambiado = false;
+      if(overrides[idIniciativaVinculada] && overrides[idIniciativaVinculada].escalado_a){
+        delete overrides[idIniciativaVinculada].escalado_a;
+        cambiado = true;
+      }
+      const ci = custom.findIndex(c=>c._id===idIniciativaVinculada);
+      if(ci>=0 && custom[ci].escalado_a){
+        delete custom[ci].escalado_a;
+        cambiado = true;
+      }
+      if(cambiado) db.collection(FS_COL).doc('demanda').set({overrides, custom});
+    }).catch(e=>console.warn('[Eliminar proyecto] No se pudo limpiar el vínculo en demanda:', e));
+  }
+
+  registrarActividad('proyecto_eliminado', 'Proyecto eliminado: "'+nombre+'"');
+  cerrarPanelProyecto();
+  update();
+}
+
 function toggleVincularIthub(idProy){
   const d = DATOS.find(x=>x._id===idProy); if(!d) return;
   d.vinculado_ithub = !d.vinculado_ithub;
@@ -2198,6 +2255,7 @@ function renderPMODetail(d, pmo){
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
           <button onclick="toggleVincularIthub(${d._id})" style="padding:6px 12px;background:${d.vinculado_ithub?'rgba(67,56,202,.4)':'rgba(255,255,255,.15)'};border:1px solid ${d.vinculado_ithub?'rgba(67,56,202,.6)':'rgba(255,255,255,.2)'};border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">${d.vinculado_ithub?'✓ Vinculado a IT HUB':'🔗 Vincular a IT HUB'}</button>
+          <button id="btn-del-proy-${d._id}" onclick="eliminarProyectoMaestro(${d._id})" style="padding:6px 12px;background:rgba(163,45,45,.25);border:1px solid rgba(163,45,45,.4);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:#ffb3b3;cursor:pointer;white-space:nowrap;transition:all .2s;">🗑 Eliminar proyecto</button>
           <button class="pmo-panel-close" onclick="cerrarPanelProyecto()">✕</button>
         </div>
       </div>

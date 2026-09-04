@@ -1501,7 +1501,7 @@ async function escalarATercero(){
       // Buscar coincidencias por nombre (posibles duplicados)
       const candidatos = datosMaestro
         .map(p=>({p, score:_similitudTexto(d.req, p.req)}))
-        .filter(x=>x.score>=0.45)
+        .filter(x=>x.score>=0.50)
         .sort((a,b)=>b.score-a.score)
         .slice(0,4);
 
