@@ -1415,15 +1415,20 @@ function renderCronogramaBtn(d){
 
 function irACronograma(idIni){
   const d = DATOS.find(x=>x._id===idIni); if(!d) return;
+  // Prioridad: si está vinculada a un proyecto de IA Aplicada, ESA es la fuente
+  // de verdad del cronograma (aunque la iniciativa también tenga un estado de
+  // proyecto propio en el index) — así nunca se abre una versión vacía.
+  if(d.escalado_a==='IA Aplicada'){
+    const mm = _maestroMirror.find(m=>m.proj.escalado_desde_demanda===idIni);
+    if(mm){
+      closeDetailPanel();
+      abrirPanelProyectoMirror(mm.proj._id);
+      return;
+    }
+  }
   if(ESTADOS_PROYECTO.includes(d.estado)){
     closeDetailPanel();
     abrirPanelProyecto(idIni);
-    return;
-  }
-  const mm = _maestroMirror.find(m=>m.proj.escalado_desde_demanda===idIni);
-  if(mm){
-    closeDetailPanel();
-    abrirPanelProyectoMirror(mm.proj._id);
   }
 }
 
@@ -1520,7 +1525,13 @@ async function escalarATercero(){
   renderEscalarSection(d);
 }
 
-async function _crearProyectoEnMaestro(d, datosMaestro, ingdata){
+async function _crearProyectoEnMaestro(d, datosMaestroObsoleto, ingdataObsoleto){
+  // Se relee maestro_datos justo antes de escribir para no pisar cambios
+  // que otra persona haya hecho en Maestro mientras se decidía el escalamiento.
+  const snapFresco = await db.collection(FS_COL).doc('maestro_datos').get();
+  const datosMaestro = snapFresco.exists ? (snapFresco.data().datos||[]) : [];
+  const ingdata = snapFresco.exists ? (snapFresco.data().ingdata||{}) : {};
+
   const nuevoProy = {
     _id: Date.now(),
     req: d.req,
@@ -1544,9 +1555,18 @@ async function _crearProyectoEnMaestro(d, datosMaestro, ingdata){
   registrarActividad('escalamiento', 'Iniciativa escalada a IA Aplicada: "'+d.req+'"');
   renderEscalarSection(d);
   _maestroMirrorLoaded = false; // forzar refresco del espejo
+  await cargarMaestroMirror();
+  renderCronogramaBtn(d);
+  renderProyectos();
 }
 
-async function _vincularProyectoExistente(d, proyExistente, datosMaestro, ingdata){
+async function _vincularProyectoExistente(d, proyExistente, datosMaestroObsoleto, ingdataObsoleto){
+  // Se relee maestro_datos justo antes de escribir para no pisar cambios
+  // que otra persona haya hecho en Maestro mientras se decidía el escalamiento.
+  const snapFresco = await db.collection(FS_COL).doc('maestro_datos').get();
+  const datosMaestro = snapFresco.exists ? (snapFresco.data().datos||[]) : [];
+  const ingdata = snapFresco.exists ? (snapFresco.data().ingdata||{}) : {};
+
   const idx = datosMaestro.findIndex(p=>p._id===proyExistente._id);
   if(idx>=0){
     datosMaestro[idx].escalado_desde_demanda = d._id;
@@ -1559,6 +1579,9 @@ async function _vincularProyectoExistente(d, proyExistente, datosMaestro, ingdat
   registrarActividad('escalamiento', 'Iniciativa vinculada a proyecto existente en IA Aplicada: "'+proyExistente.req+'"');
   renderEscalarSection(d);
   _maestroMirrorLoaded = false;
+  await cargarMaestroMirror();
+  renderCronogramaBtn(d);
+  renderProyectos();
 }
 
 function mostrarModalCoincidencias(d, candidatos, datosMaestro, ingdata){
@@ -2796,8 +2819,8 @@ function renderEjecutivo(){
   const ESTADOS_DEMANDA_PIPELINE = ["Por Levantar","En Levantamiento","En caso de negocio","Iniciativa aprobada"];
   const demandaCount = todos.filter(d=>ESTADOS_DEMANDA_PIPELINE.includes(d.estado)).length;
 
-  // Proyectos — misma lista que la tabla de proyectos
-  const proyectosDatos = todos.filter(d=>ESTADOS_PROYECTO.includes(d.estado));
+  // Proyectos — misma lista que la tabla de proyectos (excluye vinculados a IA Aplicada)
+  const proyectosDatos = todos.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada');
   const proyDetenidos  = proyectosDatos.filter(d=>getPMO(d._id).detenido===true).length;
   const proyFinaliz    = proyectosDatos.filter(d=>{ const pmo=getPMO(d._id); return calcEstadoPMOExec(d,pmo)==="Finalizado"; }).length;
   // Proyectos activos = total en tabla - detenidos - finalizados
@@ -3701,12 +3724,16 @@ function setPmoFiltro(f){
 
 function renderProyectos(){
   // Sincronizar estados de todos los proyectos al renderizar
-  DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado)).forEach(d=>{
+  // (excluye los vinculados a IA Aplicada: su cronograma vive en Maestro, no aquí)
+  DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada').forEach(d=>{
     sincronizarEstadoDesdePMO(d._id);
   });
 
   // Apply sidebar filters to proyectos
-  let proyectos = DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado));
+  // Excluye iniciativas ya vinculadas a un proyecto de IA Aplicada — esas se muestran
+  // solo en el bloque "Proyectos vinculados de IA Aplicada" (espejo desde Maestro),
+  // para que nunca aparezcan duplicadas.
+  let proyectos = DATOS.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada');
   if(filters.area)        proyectos = proyectos.filter(d=>d.area===filters.area);
   if(filters.tipo)        proyectos = proyectos.filter(d=>d.cuad===filters.tipo);
   if(filters.impacto)     proyectos = proyectos.filter(d=>d.impacto===filters.impacto);
@@ -3918,9 +3945,21 @@ async function cargarMaestroMirror(){
     ]);
     const datos = snapDatos.exists ? (snapDatos.data().datos||[]) : [];
     const pmoAll = snapPmo.exists ? (snapPmo.data().pmo||{}) : {};
-    _maestroMirror = datos
+    let items = datos
       .filter(p=>p.vinculado_ithub===true)
       .map(p=>({ proj:p, pmo: pmoAll[String(p._id)] || {etapas:{},hitos:{},equipo:[]} }));
+
+    // Defensivo: si por algún error quedaron dos proyectos de Maestro vinculados
+    // a la MISMA iniciativa del index, nos quedamos solo con el que tiene más
+    // avance registrado (para no mostrar renglones duplicados en el index).
+    const porIniciativa = {};
+    items.forEach(it=>{
+      const key = it.proj.escalado_desde_demanda;
+      if(key===undefined || key===null){ porIniciativa['_'+it.proj._id]=it; return; }
+      const actual = porIniciativa[key];
+      if(!actual || calcProgreso(it.pmo) >= calcProgreso(actual.pmo)) porIniciativa[key]=it;
+    });
+    _maestroMirror = Object.values(porIniciativa);
   } catch(e){
     console.warn('[Mirror] Error cargando proyectos de Maestro:', e);
     _maestroMirror = [];
