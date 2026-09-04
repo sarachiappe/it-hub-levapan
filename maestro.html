@@ -901,6 +901,51 @@ let pmoActiveTab  = "gantt";
 let activeSection = "proyectos";
 let _pmoIng       = null;
 
+// ══════════════════════════════════════════════
+// CÓDIGO ÚNICO POR PROYECTO
+// ══════════════════════════════════════════════
+function _normTxt(s){
+  return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+}
+function generarCodigoArea(area, sub){
+  const a = (_normTxt(area).replace(/[^A-Z]/g,'').slice(0,3)+'XXX').slice(0,3);
+  const raw = _normTxt(sub).split(/\s+/).filter(Boolean);
+  const sig = raw.filter(w=>w.length>2);
+  let s;
+  if(sig.length>=2)      s = sig[0][0]+sig[1][0];
+  else if(raw.length>=2) s = raw[0][0]+raw[1][0];
+  else if(raw.length===1)s = raw[0].slice(0,2);
+  else                   s = 'XX';
+  s = (s+'XX').slice(0,2);
+  return a+s;
+}
+function generarCodigoUnico(area, sub, existentes){
+  const prefix = generarCodigoArea(area, sub);
+  let codigo, intentos=0;
+  do {
+    const n = String(Math.floor(Math.random()*999)+1).padStart(3,'0');
+    codigo = prefix+'-'+n;
+    intentos++;
+  } while(existentes.has(codigo) && intentos<80);
+  return codigo;
+}
+let _codigosMigrados = false;
+function migrarCodigosRetroactivos(){
+  if(_codigosMigrados) return;
+  _codigosMigrados = true;
+  const existentes = new Set(DATOS.map(d=>d.codigo).filter(Boolean));
+  let cambios = false;
+  DATOS.forEach(d=>{
+    if(!d.codigo){
+      const sub = d.tipo==='Evolución'?'Evolucion':(d.tipo||'Proyecto nuevo');
+      d.codigo = generarCodigoUnico('IA', sub, existentes);
+      existentes.add(d.codigo);
+      cambios = true;
+    }
+  });
+  if(cambios) _save();
+}
+
 function _save(){
   _mCache.datos={datos:DATOS,ingdata:INGDATA};
   _mCache.sop=SOPORTES;
@@ -1104,6 +1149,16 @@ function abrirPanel(id, ing){
 }
 function abrirPanelProyecto(id){ abrirPanel(id, _pmoIng); }
 function cerrarPanelProyecto(){ document.getElementById("pmoPanelOverlay")?.classList.remove("open"); }
+
+function toggleVincularIthub(idProy){
+  const d = DATOS.find(x=>x._id===idProy); if(!d) return;
+  d.vinculado_ithub = !d.vinculado_ithub;
+  _save();
+  registrarActividad(d.vinculado_ithub?'vinculado_ithub':'desvinculado_ithub',
+    (d.vinculado_ithub?'Proyecto vinculado a IT HUB: "':'Proyecto desvinculado de IT HUB: "')+d.req+'"');
+  const panel = document.getElementById("pmoPanelContent");
+  if(panel) panel.innerHTML = renderPMODetail(d, getPMO(d._id));
+}
 function refrescarPanelPMO(id){
   if(!document.getElementById("pmoPanelOverlay")?.classList.contains("open")) return;
   const d=DATOS.find(x=>x._id===id); if(!d) return;
@@ -1501,6 +1556,7 @@ function guardarNuevoProyecto(){
     solicitante: solicit,
     ing: ing ? [ing] : [],
     creado: new Date().toISOString(),
+    codigo: generarCodigoUnico('IA', tipo, new Set(DATOS.map(x=>x.codigo).filter(Boolean))),
   };
   DATOS.push(nuevo);
   _save();
@@ -2133,6 +2189,7 @@ function renderPMODetail(d, pmo){
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
           <div class="pmo-panel-title">${d.req}</div>
+          ${d.codigo?`<div style="font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,.5);margin:2px 0 4px;letter-spacing:.03em;">${d.codigo}</div>`:''}
           <div class="pmo-panel-meta">
             <span style="font-size:12px;font-weight:600;color:${ac};">${d.area}</span>
             <span class="badge badge-${d.estado.replace(/ /g,'-')}">${d.estado}</span>
@@ -2140,7 +2197,7 @@ function renderPMODetail(d, pmo){
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0;">
-          <button onclick="openDetail(${DATOS.indexOf(d)})" style="padding:6px 12px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">Ver iniciativa →</button>
+          <button onclick="toggleVincularIthub(${d._id})" style="padding:6px 12px;background:${d.vinculado_ithub?'rgba(67,56,202,.4)':'rgba(255,255,255,.15)'};border:1px solid ${d.vinculado_ithub?'rgba(67,56,202,.6)':'rgba(255,255,255,.2)'};border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:white;cursor:pointer;white-space:nowrap;">${d.vinculado_ithub?'✓ Vinculado a IT HUB':'🔗 Vincular a IT HUB'}</button>
           <button class="pmo-panel-close" onclick="cerrarPanelProyecto()">✕</button>
         </div>
       </div>
@@ -3411,8 +3468,8 @@ function renderSoporte(){
     return a._origIdx-b._origIdx;
   });
   const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">${[["Sin iniciar",SOPORTES.filter(s=>s.estado_sop==="Sin iniciar").length,"#666"],["Abiertos",SOPORTES.filter(s=>s.estado_sop==="Abierto").length,"#BA7517"],["En proceso",SOPORTES.filter(s=>s.estado_sop==="En proceso").length,"#1D48CD"],["Detenidos",SOPORTES.filter(s=>s.estado_sop==="Detenido").length,"#A32D2D"],["Cerrados",SOPORTES.filter(s=>s.estado_sop==="Cerrado").length,"#1D9E75"],["Est.h",SOPORTES.reduce((a,s)=>a+(s.horas_est||0),0).toFixed(1)+"h","var(--navy)"],["Real h",SOPORTES.reduce((a,s)=>a+(s.horas_real||0),0).toFixed(1)+"h","var(--teal)"]].map(([l,v,c])=>`<div style="background:white;border:1px solid var(--border);border-radius:8px;padding:10px 14px"><div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:500;color:${c}">${v}</div><div style="font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.05em">${l}</div></div>`).join("")}</div>`;
-  const filas=sops.map((s)=>{const i=s._origIdx;return`<tr onclick="modalSop(${i})"><td style="padding:10px 8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${_fmtFechaCorta(s.ultima_mod||s.fecha_apertura)}</td><td style="padding:10px 12px"><span class="editable-name" onclick="editNombreSop(${i},event)" style="font-size:13px;font-weight:500;">${s.tarea||s.proyecto}</span><div style="font-size:11px;color:var(--gray);margin-top:2px">${s.desc?s.desc:s.proyecto}</div></td><td style="padding:8px 10px"><span class="ing-chip ing-chip-${s.ing||''}">${s.ing||'&#x2014;'}</span></td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderPrioridadBadge(i,s.prioridad)}</td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderEstadoSopBadge(i,s.estado_sop)}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_est||0).toFixed(1)}h</td><td style="padding:10px 8px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${s.fecha_soporte||'\u2014'}</td><td style="padding:10px 8px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${s.fecha_apertura||'\u2014'}</td><td style="padding:10px 12px;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--gray)">${(s.horas_real||0).toFixed(1)}h</td></tr>`;}).join("");
-  document.getElementById("viewProyectos").innerHTML=kpis+`<div style="background:white;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="sop-table"><thead><tr><th style="min-width:80px">Modificado</th><th style="min-width:200px">Tarea / Sistema</th><th>Ingeniero</th><th>Prioridad</th><th>Estado</th><th style="min-width:100px">Fecha soporte</th><th style="min-width:100px">Fecha creación</th><th>Estimado</th><th>Real</th></tr></thead><tbody>${filas||'<tr><td colspan="6" style="padding:40px;text-align:center;color:var(--gray)">Sin ítems de soporte</td></tr>'}</tbody></table></div>`;
+  const filas=sops.map((s)=>{const i=s._origIdx;return`<tr onclick="modalSop(${i})"><td style="padding:10px 8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);white-space:nowrap;">${s.fecha_soporte||s.fecha_apertura||'\u2014'}</td><td style="padding:10px 12px"><span class="editable-name" onclick="editNombreSop(${i},event)" style="font-size:13px;font-weight:500;">${s.tarea||s.proyecto}</span><div style="font-size:11px;color:var(--gray);margin-top:2px">${s.desc?s.desc:s.proyecto}</div></td><td style="padding:8px 10px"><span class="ing-chip ing-chip-${s.ing||''}">${s.ing||'&#x2014;'}</span></td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderPrioridadBadge(i,s.prioridad)}</td><td style="padding:10px 12px" onclick="event.stopPropagation()">${renderEstadoSopBadge(i,s.estado_sop)}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_est||0).toFixed(1)}h</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gray)">${(s.horas_real||0).toFixed(1)}h</td></tr>`;}).join("");
+  document.getElementById("viewProyectos").innerHTML=kpis+`<div style="background:white;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="sop-table"><thead><tr><th style="min-width:100px">Fecha soporte</th><th style="min-width:200px">Tarea / Sistema</th><th>Ingeniero</th><th>Prioridad</th><th>Estado</th><th>Estimado</th><th>Real</th></tr></thead><tbody>${filas||'<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--gray)">Sin ítems de soporte</td></tr>'}</tbody></table></div>`;
 }
 
 function saveSop(idx){
@@ -3443,6 +3500,7 @@ auth.onAuthStateChanged(async(user)=>{
     appContainer.style.display="block";
     await initMaestroFirestore().catch(()=>{});
     _load();
+    migrarCodigosRetroactivos();
     updateHeaderDate();
     setInterval(updateHeaderDate,60000);
     initDragDrop();

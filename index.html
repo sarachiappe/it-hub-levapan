@@ -638,6 +638,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
         <div style="flex:1;">
           <div class="detail-title" id="d-title"></div>
           <div class="detail-area" id="d-area"></div>
+          <div id="d-codigo" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);margin-top:2px;letter-spacing:.03em;"></div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;margin-top:2px;">
           <button onclick="enterEditMode()" style="display:flex;align-items:center;gap:5px;padding:6px 12px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:var(--navy);cursor:pointer;" title="Editar iniciativa">
@@ -713,6 +714,7 @@ tbody td{padding:10px 13px;color:var(--navy);vertical-align:middle;}
             <div class="filter-group-label" style="color:var(--gray);margin-bottom:8px;">Escalar a tercero</div>
             <div id="d-escalar"></div>
           </div>
+          <div id="d-cronograma-btn"></div>
         </div>
         <div style="padding-top:8px;border-top:1px solid var(--border);">
           <button onclick="eliminarIniciativa()" style="display:flex;align-items:center;gap:6px;width:100%;padding:9px 14px;background:transparent;border:1px solid #FCEBEB;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:#A32D2D;cursor:pointer;transition:all .15s;justify-content:center;" onmouseover="this.style.background='#FCEBEB'" onmouseout="this.style.background='transparent'">
@@ -1392,6 +1394,39 @@ function eliminarProyecto(idIni){
 // ══════════════════════════════════════════════
 // ESCALAR A TERCERO
 // ══════════════════════════════════════════════
+function renderCronogramaBtn(d){
+  const el = document.getElementById('d-cronograma-btn');
+  if(!el) return;
+
+  const hasOwnProject = ESTADOS_PROYECTO.includes(d.estado);
+  const mirrorMatch = _maestroMirror.find(m=>m.proj.escalado_desde_demanda===d._id);
+
+  function pintar(){
+    const mm = _maestroMirror.find(m=>m.proj.escalado_desde_demanda===d._id);
+    const activo = hasOwnProject || !!mm;
+    el.innerHTML = `<button ${activo?`onclick="irACronograma(${d._id})"`:'disabled'} style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;background:${activo?'var(--off)':'transparent'};border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:${activo?'var(--navy)':'var(--gray)'};cursor:${activo?'pointer':'not-allowed'};opacity:${activo?'1':'.45'};">📅 Cronograma de proyecto${activo?'':' (sin proyecto asociado)'}</button>`;
+  }
+
+  if(d.escalado_a==='IA Aplicada' && !_maestroMirrorLoaded){
+    cargarMaestroMirror().then(pintar);
+  }
+  pintar();
+}
+
+function irACronograma(idIni){
+  const d = DATOS.find(x=>x._id===idIni); if(!d) return;
+  if(ESTADOS_PROYECTO.includes(d.estado)){
+    closeDetailPanel();
+    abrirPanelProyecto(idIni);
+    return;
+  }
+  const mm = _maestroMirror.find(m=>m.proj.escalado_desde_demanda===idIni);
+  if(mm){
+    closeDetailPanel();
+    abrirPanelProyectoMirror(mm.proj._id);
+  }
+}
+
 function renderEscalarSection(d){
   const el = document.getElementById('d-escalar');
   if(!el) return;
@@ -1425,6 +1460,20 @@ function agregarNuevoTercero(){
   if(d) renderEscalarSection(d);
 }
 
+function _similitudTexto(a,b){
+  a=_normTxt(a).trim(); b=_normTxt(b).trim();
+  if(!a||!b) return 0;
+  if(a===b) return 1;
+  const wa=new Set(a.split(/\s+/).filter(w=>w.length>2));
+  const wb=new Set(b.split(/\s+/).filter(w=>w.length>2));
+  if(wa.size===0||wb.size===0) return (a.includes(b)||b.includes(a))?0.7:0;
+  let inter=0; wa.forEach(w=>{ if(wb.has(w)) inter++; });
+  const union = new Set([...wa,...wb]).size;
+  let score = union?inter/union:0;
+  if(a.includes(b)||b.includes(a)) score = Math.max(score,0.75);
+  return score;
+}
+
 async function escalarATercero(){
   const sel = document.getElementById('sel-tercero');
   if(!sel || !sel.value){ window.alert('Selecciona un tercero primero.'); return; }
@@ -1436,39 +1485,119 @@ async function escalarATercero(){
     try {
       const snap = await db.collection(FS_COL).doc('maestro_datos').get();
       const datosMaestro = snap.exists ? (snap.data().datos||[]) : [];
-      const existe = datosMaestro.find(function(p){ return p.escalado_desde_demanda===d._id; });
-      if(existe){
-        window.alert('Esta iniciativa ya fue escalada a IA Aplicada (proyecto: "'+existe.req+'").');
+      const ingdata = snap.exists ? (snap.data().ingdata||{}) : {};
+
+      const existeExacto = datosMaestro.find(function(p){ return p.escalado_desde_demanda===d._id; });
+      if(existeExacto){
+        window.alert('Esta iniciativa ya fue escalada a IA Aplicada (proyecto: "'+existeExacto.req+'").');
         return;
       }
-      const nuevoProy = {
-        _id: Date.now(),
-        req: d.req,
-        desc: d.desc||'',
-        area: d.area||'TI',
-        cuad: d.cuad||'E',
-        tipo: 'Proyecto IA Aplicada',
-        estado: 'En Levantamiento',
-        solicitante: '',
-        ing: [],
-        creado: new Date().toISOString(),
-        brief: d.brief||d.desc||'',
-        escalado_desde_demanda: d._id
-      };
-      datosMaestro.push(nuevoProy);
-      const ingdata = snap.exists ? (snap.data().ingdata||{}) : {};
-      await db.collection(FS_COL).doc('maestro_datos').set({datos: datosMaestro, ingdata: ingdata});
+
+      // Buscar coincidencias por nombre (posibles duplicados)
+      const candidatos = datosMaestro
+        .map(p=>({p, score:_similitudTexto(d.req, p.req)}))
+        .filter(x=>x.score>=0.45)
+        .sort((a,b)=>b.score-a.score)
+        .slice(0,4);
+
+      if(candidatos.length){
+        mostrarModalCoincidencias(d, candidatos, datosMaestro, ingdata);
+        return;
+      }
+
+      await _crearProyectoEnMaestro(d, datosMaestro, ingdata);
     } catch(e){
       console.warn('Error escalando a IA Aplicada:', e);
       window.alert('Error al conectar con el Maestro. Intenta de nuevo.');
       return;
     }
+    return; // el flujo async de arriba ya guarda d.escalado_a y refresca
   }
 
   d.escalado_a = tercero;
   saveToStorage();
   registrarActividad('escalamiento', 'Iniciativa escalada a '+tercero+': "'+d.req+'"');
   renderEscalarSection(d);
+}
+
+async function _crearProyectoEnMaestro(d, datosMaestro, ingdata){
+  const nuevoProy = {
+    _id: Date.now(),
+    req: d.req,
+    desc: d.desc||'',
+    area: d.area||'TI',
+    cuad: d.cuad||'E',
+    tipo: 'Proyecto IA Aplicada',
+    estado: 'En Levantamiento',
+    solicitante: '',
+    ing: [],
+    creado: new Date().toISOString(),
+    brief: d.brief||d.desc||'',
+    codigo: d.codigo||'',
+    escalado_desde_demanda: d._id,
+    vinculado_ithub: true
+  };
+  datosMaestro.push(nuevoProy);
+  await db.collection(FS_COL).doc('maestro_datos').set({datos: datosMaestro, ingdata: ingdata});
+  d.escalado_a = 'IA Aplicada';
+  saveToStorage();
+  registrarActividad('escalamiento', 'Iniciativa escalada a IA Aplicada: "'+d.req+'"');
+  renderEscalarSection(d);
+  _maestroMirrorLoaded = false; // forzar refresco del espejo
+}
+
+async function _vincularProyectoExistente(d, proyExistente, datosMaestro, ingdata){
+  const idx = datosMaestro.findIndex(p=>p._id===proyExistente._id);
+  if(idx>=0){
+    datosMaestro[idx].escalado_desde_demanda = d._id;
+    datosMaestro[idx].vinculado_ithub = true;
+    if(!datosMaestro[idx].codigo && d.codigo) datosMaestro[idx].codigo = d.codigo;
+    await db.collection(FS_COL).doc('maestro_datos').set({datos: datosMaestro, ingdata: ingdata});
+  }
+  d.escalado_a = 'IA Aplicada';
+  saveToStorage();
+  registrarActividad('escalamiento', 'Iniciativa vinculada a proyecto existente en IA Aplicada: "'+proyExistente.req+'"');
+  renderEscalarSection(d);
+  _maestroMirrorLoaded = false;
+}
+
+function mostrarModalCoincidencias(d, candidatos, datosMaestro, ingdata){
+  const filas = candidatos.map((c,i)=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
+      <div style="min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.p.req}</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:2px;">${c.p.codigo||'sin código'} · similitud ${Math.round(c.score*100)}%</div>
+      </div>
+      <button onclick="_confirmarVinculacion(${i})" style="flex-shrink:0;padding:6px 12px;background:#4338CA;border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Sí, es este</button>
+    </div>`).join('');
+
+  window._coincidenciasCtx = {d, candidatos, datosMaestro, ingdata};
+
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-coincidencias';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,32,68,.55);z-index:900;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:12px;width:100%;max-width:460px;max-height:85vh;overflow-y:auto;padding:22px 24px;">
+      <div style="font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;">Encontramos proyectos parecidos en IA Aplicada</div>
+      <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:var(--gray);margin-bottom:16px;">¿Alguno de estos es el mismo proyecto? Así evitamos duplicarlo.</div>
+      ${filas}
+      <button onclick="_crearNuevoTrasComparar()" style="width:100%;margin-top:6px;padding:9px;background:var(--off);border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--navy);cursor:pointer;">Ninguno — crear proyecto nuevo</button>
+      <button onclick="document.getElementById('modal-coincidencias').remove()" style="width:100%;margin-top:8px;padding:8px;background:none;border:none;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--gray);cursor:pointer;text-decoration:underline;">Cancelar</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function _confirmarVinculacion(i){
+  const ctx = window._coincidenciasCtx; if(!ctx) return;
+  const proy = ctx.candidatos[i].p;
+  document.getElementById('modal-coincidencias')?.remove();
+  _vincularProyectoExistente(ctx.d, proy, ctx.datosMaestro, ctx.ingdata);
+}
+
+function _crearNuevoTrasComparar(){
+  const ctx = window._coincidenciasCtx; if(!ctx) return;
+  document.getElementById('modal-coincidencias')?.remove();
+  _crearProyectoEnMaestro(ctx.d, ctx.datosMaestro, ctx.ingdata);
 }
 
 function quitarEscalamiento(){
@@ -1669,6 +1798,50 @@ function DATOS_LOAD(){
   const raw = loadFromStorage();
   DATOS.length = 0;
   raw.forEach(d=>DATOS.push(d));
+}
+
+// ══════════════════════════════════════════════
+// CÓDIGO ÚNICO POR INICIATIVA/PROYECTO
+// ══════════════════════════════════════════════
+function _normTxt(s){
+  return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+}
+function generarCodigoArea(area, sub){
+  const a = (_normTxt(area).replace(/[^A-Z]/g,'').slice(0,3)+'XXX').slice(0,3);
+  const raw = _normTxt(sub).split(/\s+/).filter(Boolean);
+  const sig = raw.filter(w=>w.length>2);
+  let s;
+  if(sig.length>=2)      s = sig[0][0]+sig[1][0];
+  else if(raw.length>=2) s = raw[0][0]+raw[1][0];
+  else if(raw.length===1)s = raw[0].slice(0,2);
+  else                   s = 'XX';
+  s = (s+'XX').slice(0,2);
+  return a+s;
+}
+function generarCodigoUnico(area, sub, existentes){
+  const prefix = generarCodigoArea(area, sub);
+  let codigo, intentos=0;
+  do {
+    const n = String(Math.floor(Math.random()*999)+1).padStart(3,'0');
+    codigo = prefix+'-'+n;
+    intentos++;
+  } while(existentes.has(codigo) && intentos<80);
+  return codigo;
+}
+let _codigosMigrados = false;
+function migrarCodigosRetroactivos(){
+  if(_codigosMigrados) return;
+  _codigosMigrados = true;
+  const existentes = new Set(DATOS.map(d=>d.codigo).filter(Boolean));
+  let cambios = false;
+  DATOS.forEach(d=>{
+    if(!d.codigo){
+      d.codigo = generarCodigoUnico(d.area, d.sub, existentes);
+      existentes.add(d.codigo);
+      cambios = true;
+    }
+  });
+  if(cambios) saveToStorage();
 }
 
 function saveToStorage(){
@@ -2127,6 +2300,7 @@ function openDetail(idx){
   document.getElementById("d-title").textContent=d.req;
   document.getElementById("d-area").textContent=d.area+" · "+d.sub;
   document.getElementById("d-area").className="detail-area"; document.getElementById("d-area").style.color="var(--navy)";
+  document.getElementById("d-codigo").textContent = d.codigo || '';
   document.getElementById("d-tipo").innerHTML=tipoInteractivo(d.cuad, idx, 'panel');
   document.getElementById("d-impacto").innerHTML=badge(d.impacto,d.impacto);
   document.getElementById("d-complejidad").innerHTML=badge(d.complejidad,d.complejidad);
@@ -2138,6 +2312,7 @@ function openDetail(idx){
   if(d.brief){document.getElementById("d-brief").textContent=d.brief;document.getElementById("d-brief-wrap").style.display="block";}
   else document.getElementById("d-brief-wrap").style.display="none";
   renderEscalarSection(d);
+  renderCronogramaBtn(d);
   document.getElementById("d-procesos-badge").innerHTML=procesosInteractivo(d.procesos, idx);
   document.getElementById("d-inversion-input").value=d.inversion||"";
   document.getElementById("d-roi-input").value=d.roi||"";
@@ -2456,6 +2631,7 @@ function confirmarIniciativa(){
   aiResult.procesos=document.getElementById("f-procesos")?.checked||false;
   aiResult._new=true;
   aiResult._id = Date.now();
+  aiResult.codigo = generarCodigoUnico(aiResult.area, aiResult.sub, new Set(DATOS.map(x=>x.codigo).filter(Boolean)));
   DATOS.push(aiResult);
   saveToStorage();
   registrarActividad("iniciativa_nueva",`Nueva iniciativa: "${aiResult.req}" (${aiResult.area||"sin área"})`);
@@ -3725,6 +3901,126 @@ function renderProyectos(){
   </div>`;
 
   document.getElementById("viewProyectos").innerHTML = `<div class="pmo-main">${kpisHTML}${tablaHTML}</div>`;
+  renderProyectosMirror();
+}
+
+// ══════════════════════════════════════════════
+// ESPEJO — proyectos vinculados desde IA Aplicada
+// ══════════════════════════════════════════════
+let _maestroMirror = [];
+let _maestroMirrorLoaded = false;
+
+async function cargarMaestroMirror(){
+  try {
+    const [snapDatos, snapPmo] = await Promise.all([
+      db.collection(FS_COL).doc('maestro_datos').get(),
+      db.collection(FS_COL).doc('maestro_pmo').get()
+    ]);
+    const datos = snapDatos.exists ? (snapDatos.data().datos||[]) : [];
+    const pmoAll = snapPmo.exists ? (snapPmo.data().pmo||{}) : {};
+    _maestroMirror = datos
+      .filter(p=>p.vinculado_ithub===true)
+      .map(p=>({ proj:p, pmo: pmoAll[String(p._id)] || {etapas:{},hitos:{},equipo:[]} }));
+  } catch(e){
+    console.warn('[Mirror] Error cargando proyectos de Maestro:', e);
+    _maestroMirror = [];
+  } finally {
+    _maestroMirrorLoaded = true;
+  }
+}
+
+async function renderProyectosMirror(){
+  if(!_maestroMirrorLoaded) await cargarMaestroMirror();
+  const cont = document.getElementById("viewProyectos");
+  if(!cont) return;
+  document.getElementById('proyectos-mirror-block')?.remove();
+  if(!_maestroMirror.length) return;
+
+  const filas = _maestroMirror.map(({proj,pmo})=>{
+    const prog = calcProgreso(pmo);
+    return `<tr onclick="abrirPanelProyectoMirror(${proj._id})" style="cursor:pointer;">
+      <td style="min-width:200px;padding:10px 12px;">
+        <div style="font-weight:600;font-size:13px;color:var(--navy);">${proj.req}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--gray);margin-top:2px;">${proj.codigo||''}</div>
+      </td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--gray);">${(proj.ing||[]).join(', ')||'Sin asignar'}</td>
+      <td style="padding:10px 12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;height:6px;background:var(--off);border-radius:3px;overflow:hidden;max-width:100px;"><div style="height:100%;width:${prog}%;background:#4338CA;"></div></div>
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--navy);">${prog}%</span>
+        </div>
+      </td>
+      <td style="padding:10px 12px;text-align:right;"><span style="font-size:11px;color:var(--gray);">Ver cronograma →</span></td>
+    </tr>`;
+  }).join('');
+
+  const html = `<div id="proyectos-mirror-block" style="background:var(--white);border-radius:10px;border:1px solid var(--border);margin-top:16px;overflow:hidden;">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+      <span style="font-size:14px;">🔗</span>
+      <span style="font-size:13px;font-weight:700;color:var(--navy);">Proyectos vinculados de IA Aplicada</span>
+      <span style="font-size:11px;color:var(--gray);">(${_maestroMirror.length}) · espejo en tiempo real desde Maestro</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:var(--off);"><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Proyecto</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Ingeniero</th><th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--gray);text-transform:uppercase;">Avance</th><th></th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+  </div>`;
+  cont.insertAdjacentHTML('beforeend', html);
+}
+
+function abrirPanelProyectoMirror(maestroId){
+  const item = _maestroMirror.find(m=>m.proj._id===maestroId);
+  if(!item){ window.alert('No se pudo cargar este proyecto. Intenta recargar la vista.'); return; }
+  const panel = document.getElementById("pmoPanelContent");
+  if(panel) panel.innerHTML = renderPMODetailMirror(item.proj, item.pmo);
+  document.getElementById("pmoPanelOverlay").classList.add("open");
+}
+
+function renderPMODetailMirror(proj, pmo){
+  const prog = calcProgreso(pmo);
+  const etapasHTML = ETAPAS_BASE.map(e=>{
+    const ed = pmo.etapas?.[e.id] || {};
+    const pct = calcPctEtapa(ed);
+    return `<div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:12.5px;font-weight:600;color:var(--navy);">${e.nombre}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gray);">${pct}%${ed.inicio?' · '+fmtFecha(ed.inicio):''}${ed.fin?' → '+fmtFecha(ed.fin):''}</span>
+      </div>
+      <div style="height:7px;background:rgba(255,255,255,.12);border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${e.color};"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="pmo-panel-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="flex:1;">
+          <div class="pmo-panel-title">${proj.req}</div>
+          ${proj.codigo?`<div style="font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,.5);margin:2px 0 4px;letter-spacing:.03em;">${proj.codigo}</div>`:''}
+          <div class="pmo-panel-meta">
+            <span style="font-size:11px;background:#4338CA;color:white;padding:2px 8px;border-radius:8px;">🔗 IA Aplicada</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.6);">Progreso: <strong style="color:white">${prog}%</strong></span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button onclick="cerrarPanelProyecto()" class="pmo-panel-close">✕</button>
+        </div>
+      </div>
+    </div>
+    <div style="padding:16px 24px;background:#EEF2FF;border-bottom:1px solid #C7D2FE;font-size:12px;color:#4338CA;">
+      Este proyecto se gestiona desde <strong>Maestro IA Aplicada</strong>. La vista es de solo lectura — los cambios se sincronizan automáticamente.
+    </div>
+    <div class="pmo-panel-body">
+      <div style="padding:20px 24px;">
+        <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">Cronograma</div>
+        ${etapasHTML}
+        ${proj.brief?`<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+          <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Brief</div>
+          <div style="font-size:12.5px;color:var(--navy);line-height:1.7;white-space:pre-wrap;">${proj.brief}</div>
+        </div>`:''}
+      </div>
+    </div>`;
 }
 
 function selectProyecto(id){
@@ -3761,6 +4057,7 @@ function renderPMODetail(d, pmo){
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
         <div style="flex:1;">
           <div class="pmo-panel-title">${d.req}</div>
+          ${d.codigo?`<div style="font-family:'DM Mono',monospace;font-size:11px;color:rgba(255,255,255,.5);margin:2px 0 4px;letter-spacing:.03em;">${d.codigo}</div>`:''}
           <div class="pmo-panel-meta">
             <span style="font-size:12px;font-weight:600;color:${ac};">${d.area}</span>
             <span class="badge badge-${d.estado.replace(/ /g,'-')}">${d.estado}</span>
@@ -3789,6 +4086,7 @@ function renderPMODetail(d, pmo){
         <button class="pmo-panel-tab${pmoActiveTab==='gantt'?' active':''}" onclick="switchPMOTab('gantt')">📅 Gantt</button>
         <button class="pmo-panel-tab${pmoActiveTab==='equipo'?' active':''}" onclick="switchPMOTab('equipo')">👥 Equipo</button>
         <button class="pmo-panel-tab${pmoActiveTab==='brief'?' active':''}" onclick="switchPMOTab('brief')">📄 Brief</button>
+        <button class="pmo-panel-tab${pmoActiveTab==='diario'?' active':''}" onclick="switchPMOTab('diario')">📔 Diario</button>
       </div>
     </div>
     ${renderAtrasoAlert(d, pmo)}
@@ -3871,7 +4169,7 @@ function switchPMOTab(tab){
   if(content) content.innerHTML = renderPMOTab(d, pmo, tab);
   document.querySelectorAll(".pmo-panel-tab").forEach(b=>{
     b.classList.toggle("active", b.textContent.includes(
-      tab==="gantt"?"Gantt":tab==="equipo"?"Equipo":"Brief"
+      tab==="gantt"?"Gantt":tab==="equipo"?"Equipo":tab==="diario"?"Diario":"Brief"
     ));
   });
 }
@@ -3881,6 +4179,7 @@ function renderPMOTab(d, pmo, tab){
   if(tab==="hitos")  return renderHitosTab(d, pmo);
   if(tab==="equipo") return renderEquipoTab(d, pmo);
   if(tab==="brief")  return renderBriefTab(d);
+  if(tab==="diario") return renderDiarioTabPMO(d);
   return "";
 }
 
@@ -4500,6 +4799,58 @@ function editarRangoProyecto(idIni){
 }
 
 // ── TAB BRIEF ────────────────────────────────
+function renderDiarioTabPMO(d){
+  const todo = loadDiario();
+  const mios = todo.filter(e=>e.idxIniciativa===d._id).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const listaHTML = mios.length===0
+    ? `<div style="font-size:13px;color:var(--gray);font-style:italic;padding:12px 0;">El diario está vacío. Registra la primera entrada arriba.</div>`
+    : `<div style="margin-top:8px;">${mios.map(e=>`
+        <div class="diario-entry">
+          <div class="diario-dot"></div>
+          <div class="diario-bubble">
+            <button class="diario-delete" onclick="eliminarEntradaDiarioPMO('${e.id}')">✕</button>
+            <div class="diario-fecha">${new Date(e.fecha).toLocaleString('es-CO',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+            <div class="diario-texto">${e.texto.replace(/\n/g,'<br>')}</div>
+          </div>
+        </div>`).join('')}</div>`;
+
+  return `<div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
+    <div style="font-size:12px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;">Diario del proyecto</div>
+    <div style="font-size:11px;color:var(--gray);margin-top:-6px;">Compartido con la ficha de la iniciativa en Demanda.</div>
+    <div style="display:flex;gap:8px;">
+      <textarea id="pmo-nuevo-comentario" placeholder="Escribe un comentario, nota o actualización..." style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--navy);outline:none;resize:none;min-height:72px;line-height:1.5;" onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+    </div>
+    <button onclick="agregarComentarioPMO(${d._id})" style="align-self:flex-start;padding:7px 14px;background:var(--teal);border:none;border-radius:6px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;color:white;cursor:pointer;">Agregar entrada</button>
+    <div id="pmo-diario-lista">${listaHTML}</div>
+  </div>`;
+}
+
+function agregarComentarioPMO(idIni){
+  const ta = document.getElementById("pmo-nuevo-comentario");
+  const texto = ta?.value.trim();
+  if(!texto) return;
+  const d = DATOS.find(x=>x._id===idIni); if(!d) return;
+  const e = {
+    id: Date.now()+"",
+    idxIniciativa: d._id,
+    iniciativaNombre: d.req,
+    texto,
+    fecha: new Date().toISOString()
+  };
+  const todo = loadDiario();
+  todo.unshift(e);
+  saveDiario(todo);
+  const content = document.getElementById("pmo-tab-content");
+  if(content) content.innerHTML = renderDiarioTabPMO(d);
+}
+
+function eliminarEntradaDiarioPMO(id){
+  saveDiario(loadDiario().filter(e=>e.id!==id));
+  const d = DATOS.find(x=>x._id===pmoSelectedId);
+  const content = document.getElementById("pmo-tab-content");
+  if(d && content) content.innerHTML = renderDiarioTabPMO(d);
+}
+
 function renderBriefTab(d){
   return `<div style="display:flex;flex-direction:column;gap:14px;">
     ${d.desc?`<div class="detail-desc">${d.desc}</div>`:''}
@@ -6019,6 +6370,7 @@ auth.onAuthStateChanged(async(user)=>{
     appContainer.style.display="block";
     await initFirestore().catch(()=>{});
     DATOS=loadFromStorage();
+    migrarCodigosRetroactivos();
     setView("ejecutivo");
     _loadFeedEjecutivo();
   } else {
