@@ -2890,7 +2890,7 @@ function renderEjecutivo(){
   infraAll.forEach(p=>{ infraPorEstado[p.estado] = (infraPorEstado[p.estado]||0)+1; });
   const infraPorPrioridad = {"Crítica":0,"Alta":0,"Media":0,"Baja":0};
   infraAll.forEach(p=>{ if(infraPorPrioridad[p.prioridad]!==undefined) infraPorPrioridad[p.prioridad]++; });
-  const INFRA_ESTADO_COL = {"En curso":"#028090","En control":"#BA7517","Priorizado":"#5430B3","Finalizado":"#1D9E75"};
+  const INFRA_ESTADO_COL = {"En curso":"#028090","En control":"#BA7517","Priorizado":"#7F77DD","Finalizado":"#1D9E75","Detenido":"#A32D2D","Pendiente":"#888780"};
   const INFRA_PRIOR_COL = {"Crítica":"#A32D2D","Alta":"#BA7517","Media":"#378ADD","Baja":"#888780"};
 
   // ══════════════════════════════════════════════
@@ -2929,6 +2929,34 @@ function renderEjecutivo(){
       <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${thickness}"/>
       ${arcs}
     </svg>`;
+  }
+
+  function barRow(label, n, total, col){
+    const pct = total>0?Math.round((n/total)*100):0;
+    return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;">
+      <div style="width:120px;font-size:11.5px;color:${col};font-weight:600;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
+      <div style="flex:1;height:9px;background:var(--off);border-radius:5px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${col};border-radius:5px;"></div></div>
+      <div style="width:26px;text-align:right;font-size:11.5px;font-family:'DM Mono',monospace;font-weight:700;color:var(--navy);">${n}</div>
+    </div>`;
+  }
+
+  function heatmapMatriz(rows, cols, matrix, rowColors, baseColorRgb){
+    const max = Math.max(1, ...rows.flatMap(r=>cols.map(cc=>matrix[r]?.[cc]||0)));
+    const header = `<div style="display:grid;grid-template-columns:76px repeat(${cols.length},1fr);gap:4px;margin-bottom:4px;">
+      <div></div>
+      ${cols.map(cc=>`<div style="font-size:9px;color:var(--gray);font-weight:700;text-align:center;padding-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cc}</div>`).join('')}
+    </div>`;
+    const body = rows.map(r=>`<div style="display:grid;grid-template-columns:76px repeat(${cols.length},1fr);gap:4px;margin-bottom:4px;">
+      <div style="font-size:11px;font-weight:700;color:${rowColors[r]||'var(--navy)'};display:flex;align-items:center;">${r}</div>
+      ${cols.map(cc=>{
+        const n = matrix[r]?.[cc]||0;
+        const intensity = n/max;
+        const bg = n===0 ? 'var(--off)' : `rgba(${baseColorRgb},${(0.16+intensity*0.72).toFixed(2)})`;
+        const textColor = intensity>0.55 ? '#fff' : 'var(--navy)';
+        return `<div style="background:${bg};border-radius:6px;height:32px;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${textColor};">${n||''}</div>`;
+      }).join('')}
+    </div>`).join('');
+    return header + body;
   }
 
   function donutCard(segments, size, centerLabel, centerSub){
@@ -3020,7 +3048,7 @@ function renderEjecutivo(){
           </div>
           <div>
             <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por estado</div>
-            ${donutCard(ESTADOS_DEMANDA_EJEC.map(e=>({label:e,value:porEstadoDemanda[e]||0,color:ESTADO_COLOR_MAP[e]})), 120, demandaCount, 'total')}
+            ${ESTADOS_DEMANDA_EJEC.map(e=>barRow(e, porEstadoDemanda[e]||0, demandaCount, ESTADO_COLOR_MAP[e])).join('')}
           </div>
         </div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--gray);">
@@ -3042,7 +3070,7 @@ function renderEjecutivo(){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
           <div>
             <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por estado PMO</div>
-            ${donutCard(Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,c])=>({label:e,value:porEstadoPMO[e]||0,color:c})), 120, totalProyectos, 'total')}
+            ${Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,cc])=>barRow(e, porEstadoPMO[e]||0, totalProyectos, cc)).join('')}
           </div>
           <div>
             <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por área</div>
@@ -3067,8 +3095,18 @@ function renderEjecutivo(){
             ${donutCard(Object.entries(INFRA_ESTADO_COL).map(([e,c])=>({label:e,value:infraPorEstado[e]||0,color:c})), 120, infraTotal, 'total')}
           </div>
           <div>
-            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por prioridad</div>
-            ${chipRow(Object.entries(infraPorPrioridad).map(([p,n])=>[p,n,INFRA_PRIOR_COL[p]]))}
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Prioridad × Estado</div>
+            ${(()=>{
+              const prioridadesOrden = ["Crítica","Alta","Media","Baja"].filter(p=>infraPorPrioridad[p]>0);
+              const estadosPresentes = Object.keys(INFRA_ESTADO_COL).filter(e=>infraAll.some(p=>p.estado===e));
+              if(!prioridadesOrden.length || !estadosPresentes.length) return '<div style="font-size:11px;color:var(--gray);">Sin datos aún</div>';
+              const matrix = {};
+              prioridadesOrden.forEach(pr=>{
+                matrix[pr] = {};
+                estadosPresentes.forEach(es=>{ matrix[pr][es] = infraAll.filter(p=>p.prioridad===pr && p.estado===es).length; });
+              });
+              return heatmapMatriz(prioridadesOrden, estadosPresentes, matrix, INFRA_PRIOR_COL, '84,48,179');
+            })()}
           </div>
         </div>
       </div>
@@ -6116,8 +6154,8 @@ function renderInfra(){
             </tr>
           </thead>
           <tbody>
-            ${data.map(p=>`<tr onclick="abrirPanelInfra(${p._id})" style="cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;" onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''">
-              <td style="padding:10px 12px;font-size:12px;color:var(--gray);font-family:'DM Mono',monospace;">${p._id}</td>
+            ${data.map((p,i)=>`<tr onclick="abrirPanelInfra(${p._id})" style="cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;" onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''">
+              <td style="padding:10px 12px;font-size:12px;color:var(--gray);font-family:'DM Mono',monospace;">${i+1}</td>
               <td style="padding:10px 12px;font-size:13px;font-weight:500;color:var(--navy);max-width:220px;">${p.titulo}</td>
               <td style="padding:10px 12px;font-size:12px;color:var(--gray);">${p.proveedor||'—'}</td>
               <td style="padding:10px 12px;font-size:11px;color:var(--gray);">${p.tipo||'—'}</td>
