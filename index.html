@@ -2810,30 +2810,43 @@ function setExecFiltro(f){
 }
 
 function renderEjecutivo(){
+  // Si el espejo de Maestro aún no cargó, cargarlo y re-renderizar cuando llegue
+  // (para que "Proyectos" cuente también los vinculados de IA Aplicada)
+  if(!_maestroMirrorLoaded){
+    cargarMaestroMirror().then(()=>{ if(view==='ejecutivo') renderEjecutivo(); });
+  }
+
   const AREA_COL = {Financiera:"#7ACC00",Supply:"#378ADD",Mercadeo:"#D4537E",Comercial:"#670099",Plantas:"#05F2DB",Legal:"#FFB50D",Países:"#F5A623",Administrativo:"#6B7DB3",Biolev:"#2ECC71"};
-  const ESTADO_COLOR_MAP = {"Por Levantar":"#888780","En Levantamiento":"#BA7517","En caso de negocio":"#7F77DD","Iniciativa aprobada":"#378ADD","Pre-Kickoff":"#D4537E","En proceso":"#028090","Detenido":"#888780","Finalizado":"#1D9E75"};
-  const ESTADOS_ORDEN = ["Por Levantar","En Levantamiento","En caso de negocio","Iniciativa aprobada","Pre-Kickoff","En proceso","Detenido","Finalizado"];
+  const ESTADO_COLOR_MAP = {"Por Levantar":"#888780","En Levantamiento":"#BA7517","En caso de negocio":"#7F77DD","Iniciativa aprobada":"#378ADD","Detenido":"#A32D2D"};
   const hoy = new Date().toISOString().slice(0,10);
 
-  // ── DATOS BASE ─────────────────────────────────
   const todos = DATOS;
   const allAreas = Object.keys(AREA_COL);
-  const total = todos.length;
+  const totalPortafolio = todos.length;
 
-  // ── DEMANDA ─────────────────────────────────
-  const ESTADOS_DEMANDA_PIPELINE = ["Por Levantar","En Levantamiento","En caso de negocio","Iniciativa aprobada"];
-  const demandaCount = todos.filter(d=>ESTADOS_DEMANDA_PIPELINE.includes(d.estado)).length;
-  const porEstado = {};
-  ESTADOS_ORDEN.forEach(e=>porEstado[e]=todos.filter(d=>d.estado===e).length);
-  const porArea = {};
-  allAreas.forEach(a=>porArea[a]=todos.filter(d=>d.area===a).length);
-  const areaTop = allAreas.reduce((best,a)=> (porArea[a]||0) > (porArea[best]||0) ? a : best, allAreas[0]);
+  // ══════════════════════════════════════════════
+  // DEMANDA — solo iniciativas que AÚN no son proyecto
+  // ══════════════════════════════════════════════
+  const ESTADOS_DEMANDA_EJEC = ["Por Levantar","En Levantamiento","En caso de negocio","Iniciativa aprobada","Detenido"];
+  const demandaItems = todos.filter(d=>ESTADOS_DEMANDA_EJEC.includes(d.estado));
+  const demandaCount = demandaItems.length;
+  const porEstadoDemanda = {};
+  ESTADOS_DEMANDA_EJEC.forEach(e=>porEstadoDemanda[e]=demandaItems.filter(d=>d.estado===e).length);
+  const porAreaDemanda = {};
+  allAreas.forEach(a=>porAreaDemanda[a]=demandaItems.filter(d=>d.area===a).length);
+  const areaTopDemanda = allAreas.reduce((best,a)=> (porAreaDemanda[a]||0) > (porAreaDemanda[best]||0) ? a : best, allAreas[0]);
 
-  // ── PROYECTOS ─────────────────────────────────
-  const proyectosDatos = todos.filter(d=>ESTADOS_PROYECTO.includes(d.estado) && d.escalado_a!=='IA Aplicada');
-  const proyDetenidos  = proyectosDatos.filter(d=>getPMO(d._id).detenido===true).length;
-  const proyFinaliz    = proyectosDatos.filter(d=>{ const pmo=getPMO(d._id); return calcEstadoPMOExec(d,pmo)==="Finalizado"; }).length;
-  const proyActivos    = proyectosDatos.length - proyDetenidos - proyFinaliz;
+  // ══════════════════════════════════════════════
+  // PROYECTOS — solo estados de ejecución real + vinculados de Maestro
+  // ══════════════════════════════════════════════
+  const ESTADOS_PROYECTO_EJEC = ["Pre-Kickoff","En proceso","Finalizado"];
+  const proyectosNativos = todos.filter(d=>ESTADOS_PROYECTO_EJEC.includes(d.estado) && d.escalado_a!=='IA Aplicada');
+  const proyectosMirror = _maestroMirror.map(({proj})=>({
+    _id: proj._id, req: proj.req, area: proj.area||'IA Aplicada', estado: proj.estado||'En proceso'
+  }));
+  const proyectosDatos = proyectosNativos.concat(proyectosMirror);
+  const totalProyectos = proyectosDatos.length;
+
   const porEstadoPMO = {"Pre-KickOff":0,"En proceso":0,"Atrasado":0,"Detenido":0,"Finalizado":0};
   let progSum = 0;
   proyectosDatos.forEach(d=>{
@@ -2842,11 +2855,17 @@ function renderEjecutivo(){
     if(porEstadoPMO[e]!==undefined) porEstadoPMO[e]++;
     progSum += calcProgreso(pmo);
   });
-  const avgProgProy = proyectosDatos.length>0 ? Math.round(progSum/proyectosDatos.length) : 0;
+  const avgProgProy = totalProyectos>0 ? Math.round(progSum/totalProyectos) : 0;
+  const proyFinaliz    = porEstadoPMO["Finalizado"];
+  const proyDetenidos  = porEstadoPMO["Detenido"];
+  const proyActivos    = totalProyectos - proyFinaliz - proyDetenidos;
   const porAreaProy = {};
   allAreas.forEach(a=>porAreaProy[a]=proyectosDatos.filter(d=>d.area===a).length);
+  const vinculadosCount = proyectosMirror.length;
 
-  // ── PROCESOS ─────────────────────────────────
+  // ══════════════════════════════════════════════
+  // PROCESOS
+  // ══════════════════════════════════════════════
   const macros = getMacros();
   const procActivos = macros.filter(nombre=>{
     const md = getMacroData(nombre);
@@ -2859,10 +2878,14 @@ function renderEjecutivo(){
     });
   }).length;
 
-  // ── INFRAESTRUCTURA ─────────────────────────────────
+  // ══════════════════════════════════════════════
+  // INFRAESTRUCTURA
+  // ══════════════════════════════════════════════
   const infraAll = loadInfra();
-  const infraActivos = infraAll.filter(p=>p.estado!=='Finalizado').length;
-  const infraAvgPct = infraAll.length ? Math.round(infraAll.reduce((s,p)=>s+(p.pct||0),0)/infraAll.length) : 0;
+  const infraTotal = infraAll.length;
+  const infraFinalizados = infraAll.filter(p=>p.estado==='Finalizado').length;
+  const infraActivos = infraTotal - infraFinalizados;
+  const infraAvgPct = infraTotal ? Math.round(infraAll.reduce((s,p)=>s+(p.pct||0),0)/infraTotal) : 0;
   const infraPorEstado = {};
   infraAll.forEach(p=>{ infraPorEstado[p.estado] = (infraPorEstado[p.estado]||0)+1; });
   const infraPorPrioridad = {"Crítica":0,"Alta":0,"Media":0,"Baja":0};
@@ -2870,7 +2893,9 @@ function renderEjecutivo(){
   const INFRA_ESTADO_COL = {"En curso":"#028090","En control":"#BA7517","Priorizado":"#5430B3","Finalizado":"#1D9E75"};
   const INFRA_PRIOR_COL = {"Crítica":"#A32D2D","Alta":"#BA7517","Media":"#378ADD","Baja":"#888780"};
 
-  // ── PRODUCTIVIDAD ─────────────────────────────────
+  // ══════════════════════════════════════════════
+  // PRODUCTIVIDAD
+  // ══════════════════════════════════════════════
   const allEF = loadEF();
   const conEF = todos.filter(d=>{ const ef=allEF[d._id]; return ef&&(ef.inversion||ef.roi||ef.horasMes); });
   let invTotal=0,invCount=0,roiSum=0,roiCount=0,ahorroHmes=0;
@@ -2882,159 +2907,187 @@ function renderEjecutivo(){
   });
   const fmtNum = n=>n>=1000000?'$'+(n/1000000).toFixed(1)+'M':n>=1000?'$'+(n/1000).toFixed(0)+'K':'$'+n;
   const fteLiberados = (ahorroHmes/160).toFixed(1);
-  const coberturaEF = total>0 ? Math.round((conEF.length/total)*100) : 0;
+  const coberturaEF = totalPortafolio>0 ? Math.round((conEF.length/totalPortafolio)*100) : 0;
 
-  // ── HELPERS VISUALES ─────────────────────────────────
-  function barRow(label, n, total, col){
-    const pct = total>0?Math.round((n/total)*100):0;
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
-      <div style="width:130px;font-size:11px;color:${col};font-weight:500;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
-      <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${col};border-radius:3px;"></div></div>
-      <div style="width:28px;text-align:right;font-size:11px;font-family:'DM Mono',monospace;color:var(--navy);">${n}</div>
-    </div>`;
-  }
-
-  function svgRing(pct, color, size, stroke){
-    const r = (size-stroke)/2;
+  // ══════════════════════════════════════════════
+  // HELPERS VISUALES — estilo BI
+  // ══════════════════════════════════════════════
+  function svgDonut(segments, size, thickness){
+    const total = segments.reduce((s,x)=>s+x.value,0) || 1;
+    const r = (size-thickness)/2;
     const c = 2*Math.PI*r;
-    const off = c - (Math.max(0,Math.min(100,pct))/100)*c;
-    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg);flex-shrink:0;">
-      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${stroke}"/>
-      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}"/>
+    let acc = 0;
+    const arcs = segments.filter(s=>s.value>0).map(s=>{
+      const frac = s.value/total;
+      const dash = Math.max(0, frac*c - (segments.filter(x=>x.value>0).length>1?1.5:0));
+      const rotate = (acc/total)*360 - 90;
+      acc += s.value;
+      return `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${thickness}"
+        stroke-dasharray="${dash} ${c-dash}" stroke-linecap="round" transform="rotate(${rotate} ${size/2} ${size/2})"/>`;
+    }).join('');
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${thickness}"/>
+      ${arcs}
     </svg>`;
   }
 
-  function ringStat(pct, color, size, sublabel){
-    size = size||76;
-    return `<div style="display:flex;align-items:center;gap:14px;">
+  function donutCard(segments, size, centerLabel, centerSub){
+    size = size||128;
+    const legend = segments.filter(s=>s.value>0).sort((a,b)=>b.value-a.value).map(s=>`
+      <div style="display:flex;align-items:center;gap:7px;font-size:11.5px;padding:3px 0;">
+        <span style="width:9px;height:9px;border-radius:3px;background:${s.color};flex-shrink:0;"></span>
+        <span style="flex:1;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.label}</span>
+        <span style="font-family:'DM Mono',monospace;font-weight:700;color:${s.color};">${s.value}</span>
+      </div>`).join('');
+    return `<div style="display:flex;gap:20px;align-items:center;">
       <div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;">
-        ${svgRing(pct,color,size,7)}
-        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-weight:700;font-size:16px;color:var(--navy);">${pct}%</div>
+        ${svgDonut(segments,size,Math.round(size*0.19))}
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-family:'DM Mono',monospace;font-weight:800;font-size:${Math.round(size*0.22)}px;color:var(--navy);line-height:1;">${centerLabel}</div>
+          <div style="font-size:${Math.round(size*0.08)}px;color:var(--gray);margin-top:3px;font-weight:600;">${centerSub}</div>
+        </div>
       </div>
-      <div>
-        <div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;">${sublabel}</div>
-      </div>
+      <div style="display:flex;flex-direction:column;flex:1;min-width:0;">${legend||'<div style="font-size:11px;color:var(--gray);">Sin datos aún</div>'}</div>
     </div>`;
   }
 
-  function heroCard(icon, val, label, sub, accent, bg){
-    return `<div style="background:${bg};border-radius:12px;padding:18px 20px;border:1px solid ${accent}33;position:relative;overflow:hidden;">
-      <div style="position:absolute;right:-8px;top:-8px;font-size:52px;opacity:.12;">${icon}</div>
+  function ringGauge(pct, color, size){
+    size = size||100;
+    const stroke = Math.round(size*0.16);
+    return `<div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;">
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg);">
+        <circle cx="${size/2}" cy="${size/2}" r="${(size-stroke)/2}" fill="none" stroke="${color}22" stroke-width="${stroke}"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${(size-stroke)/2}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round"
+          stroke-dasharray="${2*Math.PI*(size-stroke)/2}" stroke-dashoffset="${2*Math.PI*(size-stroke)/2 - (Math.max(0,Math.min(100,pct))/100)*2*Math.PI*(size-stroke)/2}"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-weight:800;font-size:${Math.round(size*0.22)}px;color:var(--navy);">${pct}%</div>
+    </div>`;
+  }
+
+  function heroCard(icon, val, label, sub, c1, c2){
+    return `<div style="background:linear-gradient(135deg, ${c1}, ${c2});border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;box-shadow:0 6px 18px ${c1}4d;min-height:118px;">
+      <div style="position:absolute;right:-16px;top:-16px;font-size:68px;opacity:.16;">${icon}</div>
       <div style="position:relative;">
-        <div style="font-size:30px;font-weight:800;color:${accent};line-height:1;">${val}</div>
-        <div style="font-size:12px;font-weight:600;color:var(--navy);margin-top:6px;">${label}</div>
-        <div style="font-size:11px;color:var(--gray);margin-top:2px;">${sub}</div>
+        <div style="font-size:36px;font-weight:800;color:white;line-height:1;letter-spacing:-0.5px;">${val}</div>
+        <div style="font-size:12.5px;font-weight:700;color:rgba(255,255,255,.97);margin-top:9px;">${label}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.78);margin-top:2px;">${sub}</div>
       </div>
     </div>`;
   }
 
   function moduleHeader(icon, title, accent, badge){
-    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-      <div style="width:32px;height:32px;border-radius:8px;background:${accent}1a;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">${icon}</div>
+    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+      <div style="width:38px;height:38px;border-radius:10px;background:${accent};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 3px 8px ${accent}66;">${icon}</div>
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:700;color:var(--navy);">${title}</div>
+        <div style="font-size:14.5px;font-weight:800;color:var(--navy);">${title}</div>
       </div>
-      ${badge?`<div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:${accent};background:${accent}14;padding:3px 10px;border-radius:20px;">${badge}</div>`:''}
+      ${badge?`<div style="font-family:'DM Mono',monospace;font-size:12.5px;font-weight:800;color:${accent};background:${accent}17;padding:4px 12px;border-radius:20px;">${badge}</div>`:''}
     </div>`;
   }
 
-  const chipRow = (entries) => `<div style="display:flex;flex-wrap:wrap;gap:6px;">${entries.map(([label,n,col])=>
-    n>0?`<span style="font-size:10.5px;padding:4px 9px;border-radius:20px;background:${col}14;color:${col};font-weight:600;white-space:nowrap;">${label} · ${n}</span>`:''
+  const chipRow = (entries) => `<div style="display:flex;flex-wrap:wrap;gap:7px;">${entries.map(([label,n,col])=>
+    n>0?`<span style="font-size:11px;padding:5px 11px;border-radius:20px;background:${col}17;color:${col};font-weight:700;white-space:nowrap;">${label} · ${n}</span>`:''
   ).join('')}</div>`;
 
-  document.getElementById("viewEjecutivo").innerHTML = `<div style="padding:20px;display:flex;flex-direction:column;gap:20px;">
+  document.getElementById("viewEjecutivo").innerHTML = `<div style="padding:22px;display:flex;flex-direction:column;gap:22px;background:linear-gradient(180deg, #FAFBFF 0%, #F5F6FA 100%);min-height:100%;">
 
     <!-- TÍTULO -->
     <div style="display:flex;align-items:center;justify-content:space-between;">
       <div>
-        <div style="font-size:18px;font-weight:700;color:var(--navy);">Vista ejecutiva</div>
-        <div style="font-size:12px;color:var(--gray);">Grupo Levapan · IT HUB · ${new Date().toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'})}</div>
+        <div style="font-size:20px;font-weight:800;color:var(--navy);letter-spacing:-0.3px;">Vista ejecutiva</div>
+        <div style="font-size:12.5px;color:var(--gray);margin-top:2px;">Grupo Levapan · IT HUB · ${new Date().toLocaleDateString('es-CO',{day:'numeric',month:'long',year:'numeric'})}</div>
       </div>
     </div>
 
     <!-- HERO KPIs -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
-      ${heroCard('💡', total, 'Iniciativas totales', `${demandaCount} en pipeline de demanda`, '#378ADD', '#F0F6FF')}
-      ${heroCard('⚡', proyActivos, 'Proyectos activos', `${avgProgProy}% de avance promedio`, '#028090', '#EAF7F7')}
-      ${heroCard('🏗️', infraActivos, 'Proyectos de infraestructura', `⌀ ${infraAvgPct}% de avance`, '#5430B3', '#F3EEFF')}
-      ${heroCard('🎯', procActivos, 'Procesos activos', `${macros.length} macroprocesos mapeados`, '#7ACC00', '#F3FAE9')}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      ${heroCard('💡', demandaCount, 'Iniciativas en demanda', 'Por levantar → Aprobadas / Detenidas', '#1D48CD', '#378ADD')}
+      ${heroCard('⚡', totalProyectos, 'Proyectos en ejecución', vinculadosCount>0?`${vinculadosCount} sincronizados de IA Aplicada`:'Pre-KickOff → Finalizado', '#0C5C63', '#028090')}
+      ${heroCard('🏗️', infraActivos, 'Proyectos de infraestructura', `de ${infraTotal} totales · ⌀ ${infraAvgPct}% avance`, '#3D1F87', '#5430B3')}
+      ${heroCard('🎯', procActivos, 'Procesos activos', `${macros.length} macroprocesos mapeados`, '#4F9600', '#7ACC00')}
     </div>
 
     <!-- GRID DE MÓDULOS -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:16px;">
 
       <!-- DEMANDA -->
-      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #378ADD;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-        ${moduleHeader('💡','Demanda tecnológica','#378ADD', total+' totales')}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="background:var(--white);border-radius:14px;border:1px solid var(--border);padding:20px 22px;box-shadow:0 2px 10px rgba(20,26,44,.05);">
+        ${moduleHeader('💡','Demanda tecnológica','#1D48CD', demandaCount+' iniciativas')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
-            ${allAreas.map(area=>{ const n=porArea[area]||0; return n>0?barRow(area,n,total,AREA_COL[area]):'' }).join('')}
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por área</div>
+            ${donutCard(allAreas.map(a=>({label:a,value:porAreaDemanda[a]||0,color:AREA_COL[a]})), 120, demandaCount, 'total')}
           </div>
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado</div>
-            ${ESTADOS_ORDEN.map(e=>{ const n=porEstado[e]||0; return n>0?barRow(e,n,total,ESTADO_COLOR_MAP[e]):'' }).join('')}
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por estado</div>
+            ${donutCard(ESTADOS_DEMANDA_EJEC.map(e=>({label:e,value:porEstadoDemanda[e]||0,color:ESTADO_COLOR_MAP[e]})), 120, demandaCount, 'total')}
           </div>
         </div>
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--gray);">
-          Área con mayor demanda: <strong style="color:${AREA_COL[areaTop]||'var(--navy)'};">${areaTop}</strong> (${porArea[areaTop]||0} iniciativas)
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--gray);">
+          Área con mayor demanda: <strong style="color:${AREA_COL[areaTopDemanda]||'var(--navy)'};">${areaTopDemanda}</strong> (${porAreaDemanda[areaTopDemanda]||0} iniciativas)
         </div>
       </div>
 
       <!-- PROYECTOS -->
-      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #028090;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-        ${moduleHeader('⚡','Proyectos','#028090', proyectosDatos.length+' en total')}
-        <div style="display:flex;gap:20px;align-items:center;margin-bottom:16px;">
-          ${ringStat(avgProgProy, '#028090', 76, 'Avance promedio del portafolio')}
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="background:var(--white);border-radius:14px;border:1px solid var(--border);padding:20px 22px;box-shadow:0 2px 10px rgba(20,26,44,.05);">
+        ${moduleHeader('⚡','Proyectos','#028090', totalProyectos+' en ejecución')}
+        <div style="display:flex;gap:22px;align-items:center;margin-bottom:18px;">
+          ${ringGauge(avgProgProy, '#028090', 92)}
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado PMO</div>
-            ${Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,c])=>barRow(e,porEstadoPMO[e]||0,proyectosDatos.length||1,c)).join('')}
+            <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;">Avance promedio</div>
+            <div style="font-size:11px;color:var(--gray);margin-top:4px;">del portafolio de ${totalProyectos} proyecto${totalProyectos!==1?'s':''}</div>
+            ${vinculadosCount>0?`<div style="font-size:10.5px;color:#4338CA;margin-top:4px;font-weight:600;">🔗 incluye ${vinculadosCount} de IA Aplicada</div>`:''}
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+          <div>
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por estado PMO</div>
+            ${donutCard(Object.entries({"Pre-KickOff":"#BA7517","En proceso":"#028090","Atrasado":"#A32D2D","Detenido":"#888780","Finalizado":"#1D9E75"}).map(([e,c])=>({label:e,value:porEstadoPMO[e]||0,color:c})), 120, totalProyectos, 'total')}
           </div>
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por área de negocio</div>
-            ${allAreas.map(area=>{ const n=porAreaProy[area]||0; return n>0?barRow(area,n,proyectosDatos.length||1,AREA_COL[area]):'' }).join('')}
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por área</div>
+            ${donutCard(allAreas.map(a=>({label:a,value:porAreaProy[a]||0,color:AREA_COL[a]})), 120, totalProyectos, 'total')}
           </div>
         </div>
       </div>
 
       <!-- INFRAESTRUCTURA -->
-      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #5430B3;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
-        ${moduleHeader('🏗️','Infraestructura','#5430B3', infraAll.length+' proyectos')}
-        <div style="display:flex;gap:20px;align-items:center;margin-bottom:16px;">
-          ${ringStat(infraAvgPct, '#5430B3', 76, 'Avance promedio de infraestructura')}
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div style="background:var(--white);border-radius:14px;border:1px solid var(--border);padding:20px 22px;box-shadow:0 2px 10px rgba(20,26,44,.05);">
+        ${moduleHeader('🏗️','Infraestructura','#5430B3', infraTotal+' proyectos')}
+        <div style="display:flex;gap:22px;align-items:center;margin-bottom:18px;">
+          ${ringGauge(infraAvgPct, '#5430B3', 92)}
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por estado</div>
-            ${Object.entries(INFRA_ESTADO_COL).map(([e,c])=>infraPorEstado[e]?barRow(e,infraPorEstado[e],infraAll.length||1,c):'').join('')}
+            <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;">Avance promedio</div>
+            <div style="font-size:11px;color:var(--gray);margin-top:4px;">${infraActivos} activos · ${infraFinalizados} finalizados</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+          <div>
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por estado</div>
+            ${donutCard(Object.entries(INFRA_ESTADO_COL).map(([e,c])=>({label:e,value:infraPorEstado[e]||0,color:c})), 120, infraTotal, 'total')}
           </div>
           <div>
-            <div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Por prioridad</div>
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Por prioridad</div>
             ${chipRow(Object.entries(infraPorPrioridad).map(([p,n])=>[p,n,INFRA_PRIOR_COL[p]]))}
           </div>
         </div>
       </div>
 
       <!-- PRODUCTIVIDAD -->
-      <div style="background:var(--white);border-radius:12px;border:1px solid var(--border);border-top:4px solid #7ACC00;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.04);">
+      <div style="background:var(--white);border-radius:14px;border:1px solid var(--border);padding:20px 22px;box-shadow:0 2px 10px rgba(20,26,44,.05);">
         ${moduleHeader('🎯','Productividad','#7ACC00', coberturaEF+'% con caso de negocio')}
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:${(()=>{
-          const top5check = conEF.map(d=>{ const ef=allEF[d._id]; const costo=parseFloat((ef.costoanual||ef.costoAnual||'').replace(/[^0-9.]/g,''))||0; return costo; }).filter(c=>c>0);
-          return top5check.length ? '16px' : '0';
-        })()};">
-          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">Inversión total</div>
-            <div style="font-size:19px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;">${invCount>0?fmtNum(invTotal):'—'}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+          <div style="background:linear-gradient(135deg,#F5F7FF,#EAF0FF);border-radius:10px;padding:14px;border:1px solid #D8E2FA;">
+            <div style="font-size:9.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Inversión total</div>
+            <div style="font-size:21px;font-weight:800;color:var(--navy);font-family:'DM Mono',monospace;">${invCount>0?fmtNum(invTotal):'—'}</div>
           </div>
-          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">ROI promedio</div>
-            <div style="font-size:19px;font-weight:700;color:#085041;font-family:'DM Mono',monospace;">${roiCount>0?(roiSum/roiCount).toFixed(1)+'x':'—'}</div>
+          <div style="background:linear-gradient(135deg,#EAFBF5,#DFF5EC);border-radius:10px;padding:14px;border:1px solid #B8E8D2;">
+            <div style="font-size:9.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ROI promedio</div>
+            <div style="font-size:21px;font-weight:800;color:#085041;font-family:'DM Mono',monospace;">${roiCount>0?(roiSum/roiCount).toFixed(1)+'x':'—'}</div>
           </div>
-          <div style="background:var(--off);border-radius:8px;padding:12px;border:1px solid var(--border);">
-            <div style="font-size:9.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;">FTE liberados</div>
-            <div style="font-size:19px;font-weight:700;color:#0C447C;font-family:'DM Mono',monospace;">${ahorroHmes>0?fteLiberados:'—'}</div>
+          <div style="background:linear-gradient(135deg,#EEF4FF,#E2ECFC);border-radius:10px;padding:14px;border:1px solid #C7D7F5;">
+            <div style="font-size:9.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">FTE liberados</div>
+            <div style="font-size:21px;font-weight:800;color:#0C447C;font-family:'DM Mono',monospace;">${ahorroHmes>0?fteLiberados:'—'}</div>
           </div>
         </div>
         ${(()=>{
@@ -3043,23 +3096,22 @@ function renderEjecutivo(){
             const costo = parseFloat((ef.costoanual||ef.costoAnual||'').replace(/[^0-9.]/g,''))||0;
             return {d, ef, costo};
           }).filter(x=>x.costo>0).sort((a,b)=>b.costo-a.costo).slice(0,5);
-          if(!top5.length) return '';
-          return '<div style="font-size:10.5px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Top 5 · Mayor costo del problema</div>'
-            + top5.map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
-              <div style="width:18px;height:18px;border-radius:50%;background:${AREA_COL[x.d.area]||'#888'};display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;color:white;flex-shrink:0;">${i+1}</div>
-              <div style="flex:1;min-width:0;"><div style="font-size:12px;font-weight:500;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" onclick="openDetail(${DATOS.indexOf(x.d)})">${x.d.req}</div>
+          if(!top5.length) return '<div style="text-align:center;padding:16px;color:var(--gray);font-size:12px;">Completa evaluaciones financieras en la pestaña 📊 Eval. de cada iniciativa.</div>';
+          return '<div style="font-size:10.5px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;">Top 5 · Mayor costo del problema</div>'
+            + top5.map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+              <div style="width:20px;height:20px;border-radius:50%;background:${AREA_COL[x.d.area]||'#888'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:white;flex-shrink:0;">${i+1}</div>
+              <div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;" onclick="openDetail(${DATOS.indexOf(x.d)})">${x.d.req}</div>
               <div style="font-size:10px;color:var(--gray);">${x.d.area}</div></div>
-              <div style="font-family:'DM Mono',monospace;font-size:12.5px;font-weight:700;color:#A32D2D;flex-shrink:0;">${fmtNum(x.costo)}</div>
+              <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:800;color:#A32D2D;flex-shrink:0;">${fmtNum(x.costo)}</div>
             </div>`).join('');
         })()}
-        ${conEF.length===0?'<div style="text-align:center;padding:16px;color:var(--gray);font-size:12px;">Completa evaluaciones financieras en la pestaña 📊 Eval. de cada iniciativa.</div>':''}
       </div>
 
     </div>
   </div>`;
 }
 
-// Helper para calcular estado PMO fuera del contexto de renderProyectos
+
 function calcEstadoPMOExec(d, pmo){
   const prog = calcProgreso(pmo);
   // "Finalizado" requiere el hito de Cierre marcado, no solo 100% de avance
