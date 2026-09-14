@@ -2994,13 +2994,11 @@ function renderEjecutivo(){
   }
 
   function heroCard(icon, val, label, sub, c1, c2){
-    return `<div style="background:linear-gradient(135deg, ${c1}, ${c2});border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;box-shadow:0 6px 18px ${c1}4d;min-height:118px;">
+    return `<div style="background:linear-gradient(135deg, ${c1}, ${c2});border-radius:16px;padding:22px;position:relative;overflow:hidden;box-shadow:0 6px 18px ${c1}4d;min-height:132px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
       <div style="position:absolute;right:-16px;top:-16px;font-size:68px;opacity:.16;">${icon}</div>
       <div style="position:relative;">
-        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
-          <div style="font-size:36px;font-weight:800;color:white;line-height:1;letter-spacing:-0.5px;">${val}</div>
-          <div style="font-size:18px;font-weight:700;color:rgba(255,255,255,.97);line-height:1.2;">${label}</div>
-        </div>
+        <div style="font-size:36px;font-weight:800;color:white;line-height:1;letter-spacing:-0.5px;">${val}</div>
+        <div style="font-size:18px;font-weight:700;color:rgba(255,255,255,.97);line-height:1.25;margin-top:7px;">${label}</div>
         <div style="font-size:12px;color:rgba(255,255,255,.78);margin-top:7px;">${sub}</div>
       </div>
     </div>`;
